@@ -314,6 +314,19 @@ function soft(text: string): string {
     .replace(/[^\s\u200B]{8}(?=[^\s\u200B])/g, m => m + '\u200B')
 }
 
+// Splits text into pieces that may sit on separate lines: each Chinese/Japanese/Korean
+// character alone, each other word with the space after it, and long words cut every 8.
+function pieces(text: string): string[] {
+  const out: string[] = []
+  const re = /[\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F]|[^\s\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F]+\s*|\s+/g
+  for (const m of text.matchAll(re)) {
+    const t = m[0]
+    if (t.length > 9 && !/^\s+$/.test(t)) for (let i = 0; i < t.length; i += 8) out.push(t.slice(i, i + 8))
+    else out.push(t)
+  }
+  return out
+}
+
 function ago(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60000))
   if (min < 1) return '剛剛'
@@ -753,30 +766,36 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
 
   const toggle = (col: string) => update($, openAtom, list => (list.includes(col) ? list.filter(c => c !== col) : [...list, col]))
 
+  // Text that wraps by layout: a row of pieces that flows onto new lines inside its box,
+  // so a card can never be pushed wider by its words, Chinese or English.
+  const wrapped = (key: string, text: string, style: { bold?: boolean; dim?: boolean; color?: 'warning' } = {}) => (
+    <Box key={key} flexDirection="row" flexWrap="wrap" minWidth={0} width="100%">
+      {pieces(text).map(t => (
+        // a space at the end of a piece kept as a non-breaking space, so it is not dropped
+        <Text bold={style.bold} dimColor={style.dim} color={style.color}>
+          {t.replace(/\s+$/, '\u00A0')}
+        </Text>
+      ))}
+    </Box>
+  )
+
   const column = (col: string, title: string, list: readonly ConsoleRow[], empty: string, meta: (r: ConsoleRow) => string) => {
     const isOpen = opened.includes(col)
     const shown = isOpen ? list : list.slice(0, 3)
     return (
       <Box key={'col-' + col} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={1}>
-        <Text bold wrap="wrap">
-          {soft(title)} <Text dimColor>{list.length}</Text>
-        </Text>
+        {wrapped('t-' + col, `${title} ${list.length}`, { bold: true })}
         {list.length === 0 && (
-          <Box borderStyle="single" paddingX={1}>
-            <Text dimColor wrap="wrap">{soft(empty)}</Text>
+          <Box borderStyle="single" paddingX={1} minWidth={0} width="100%">
+            {wrapped('e-' + col, empty, { dim: true })}
           </Box>
         )}
         {shown.map(r => (
           <Box key={col + '-' + r.id} flexDirection="column" borderStyle="single" paddingX={1} minWidth={0} width="100%">
-            <Text bold wrap="wrap">{soft(r.title)}</Text>
-            {col === 'wait' && r.waiting !== '' && <Text color="warning" wrap="wrap">{soft(r.waiting)}</Text>}
-            {col === 'work' && r.total > 0 && (
-              <Text dimColor wrap="wrap">
-                {r.done}/{r.total}
-                {r.current !== '' ? ' · ' + soft(r.current) : ''}
-              </Text>
-            )}
-            <Text dimColor wrap="wrap">{soft(meta(r))}</Text>
+            {wrapped('n-' + r.id, r.title, { bold: true })}
+            {col === 'wait' && r.waiting !== '' && wrapped('w-' + r.id, r.waiting, { color: 'warning' })}
+            {col === 'work' && r.total > 0 && wrapped('p-' + r.id, `${r.done}/${r.total}${r.current !== '' ? ' · ' + r.current : ''}`, { dim: true })}
+            {wrapped('m-' + r.id, meta(r), { dim: true })}
           </Box>
         ))}
         {list.length > 3 && (
