@@ -425,8 +425,9 @@ ${plant(10, 70)}${plant(12, 188)}
 <rect x="80" y="56" width="12" height="9" fill="#bcd7ef" stroke="${INK}" stroke-width="1"/><path d="M86 65 V80" stroke="#8a5a3a" stroke-width="2"/><path d="M92 58 V52 h4 v3 h-4" fill="#e07a6a" stroke="${INK}" stroke-width=".8"/>
 ${DESKS.map(([x, y]) => desk(x, y)).join('')}
 ${plant(106, 84)}
-<path d="M220 50 V186" stroke="#c98a5a" stroke-width="3"/>
-<path d="M220 56 V186" stroke="#e9d2b0" stroke-width="1" stroke-dasharray="3 3"/>
+<path d="M220 50 V80 M220 100 V186" stroke="#c98a5a" stroke-width="3"/>
+<path d="M220 56 V80 M220 100 V186" stroke="#e9d2b0" stroke-width="1" stroke-dasharray="3 3"/>
+<circle cx="220" cy="80" r="2.4" fill="#c98a5a"/><circle cx="220" cy="100" r="2.4" fill="#c98a5a"/>
 <rect x="230" y="52" width="26" height="34" fill="#e9d2b0" stroke="${INK}" stroke-width="1"/>
 <path d="M230 63 H256 M230 74 H256" stroke="${INK}" stroke-width="1"/>
 <rect x="233" y="55" width="4" height="8" fill="#f4a7b9"/><rect x="238" y="56" width="4" height="7" fill="#9fdcc8"/><rect x="243" y="54" width="3" height="9" fill="#f2c84b"/><rect x="236" y="66" width="5" height="8" fill="#bcd7ef"/>

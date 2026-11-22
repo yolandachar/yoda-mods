@@ -8,6 +8,8 @@
 
 export type Pt = readonly [number, number]
 
+// The whole room as walkway points, each placed clear of the desks, sofas, shelf,
+// lamp, mailbox and plants; he only ever walks straight between linked points.
 const NODES: Record<string, Pt> = {
   nap: [60, 178], // by the plant, bottom left: his napping spot
   bl: [98, 176],
@@ -18,17 +20,27 @@ const NODES: Record<string, Pt> = {
   tl: [98, 84],
   tm: [154, 84],
   tr: [211, 84],
+  wn: [154, 62], // under the big window
+  win2: [126, 62],
+  win3: [186, 62],
+  wr: [211, 62],
   d1: [154, 100], // between the front desks
   d2: [154, 146], // between the back desks
   r1: [211, 124], // at the rope, by the pink sofa
+  rm: [211, 146],
   r2: [211, 164], // at the rope, by the mint sofa
+  gate: [211, 90], // the gap in the rope
+  shelf: [240, 90], // in front of the bookshelf
+  lamp: [266, 90], // by the reading lamp
 }
 
 const EDGES: ReadonlyArray<readonly [string, string]> = [
   ['nap', 'bl'], ['bl', 'bm'], ['bm', 'br'],
   ['bl', 'wl2'], ['wl2', 'wl1'], ['wl1', 'tl'], ['tl', 'tm'], ['tm', 'tr'],
+  ['tm', 'wn'], ['wn', 'win2'], ['wn', 'win3'], ['win3', 'wr'], ['wr', 'tr'],
   ['tm', 'd1'], ['d1', 'd2'], ['d2', 'bm'],
-  ['tr', 'r1'], ['r1', 'r2'], ['r2', 'br'],
+  ['tr', 'gate'], ['gate', 'r1'], ['r1', 'rm'], ['rm', 'r2'], ['r2', 'br'],
+  ['gate', 'shelf'], ['shelf', 'lamp'],
 ]
 
 const NEIGHBOURS: Record<string, string[]> = {}
@@ -76,7 +88,7 @@ function nearest(p: Pt): string {
   return best
 }
 
-type Act = 'walk' | 'run' | 'tiptoe' | 'boo' | 'wave' | 'watch' | 'spin' | 'sleep' | 'stretch' | 'pause'
+type Act = 'walk' | 'run' | 'tiptoe' | 'boo' | 'wave' | 'watch' | 'spin' | 'sleep' | 'stretch' | 'pause' | 'sit' | 'play'
 /** One piece of the trip: from t0 to t1 seconds he goes from a to b (or stays) doing `act`. */
 export type Leg = { t0: number; t1: number; a: Pt; b: Pt; act: Act; face: 1 | -1 }
 export type Trip = { legs: Leg[]; total: number }
@@ -110,39 +122,62 @@ export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): 
 
   // first step onto the walkway
   move(NODES[nearest(at)]!, WALK, 'walk')
-  // a long day, so the loop is many minutes before it comes round again
-  const visits = 16 + Math.floor(rnd() * 8)
+  // a long, loose day: each time he picks somewhere to go and something to do there
+  const look = () => {
+    // looking about: turn one way, then the other
+    const n = 2 + Math.floor(rnd() * 3)
+    for (let k = 0; k < n; k++) {
+      face = face === 1 ? -1 : 1
+      stay(0.9 + rnd() * 1.4, 'pause')
+    }
+  }
+  const spots = Object.keys(NODES)
+  const visits = 18 + Math.floor(rnd() * 10)
   for (let i = 0; i < visits; i++) {
     const roll = rnd()
-    if (areas.length > 0 && roll < 0.16) {
+    if (areas.length > 0 && roll < 0.12) {
       // mischief: tiptoe up to a Yoda, then jump out with a "!"
       const area = areas[Math.floor(rnd() * areas.length)]!
       walkTo(AREA_NODE[area])
       const spot = NODES[AREA_NODE[area]]!
-      move([spot[0] + (rnd() < 0.5 ? -10 : 10), spot[1]], TIPTOE, 'tiptoe')
+      move([spot[0] + (rnd() < 0.5 ? -8 : 8), spot[1]], TIPTOE, 'tiptoe')
       stay(1.6, 'boo')
-      stay(1.2, 'pause')
+      stay(1, 'pause')
       walkTo(rnd() < 0.5 ? 'bm' : 'tm', RUN)
-    } else if (areas.length > 0 && roll < 0.62) {
-      // pay a Yoda a visit
+    } else if (areas.length > 0 && roll < 0.42) {
+      // pay a Yoda a visit: say hello, or just watch her work
       const area = areas[Math.floor(rnd() * areas.length)]!
       walkTo(AREA_NODE[area])
-      // turn toward the Yoda: desks and the waiting corner are to his left, the sofas to his right
       face = area === 'rest1' || area === 'rest2' ? 1 : area === 'desk1' || area === 'desk2' ? (rnd() < 0.5 ? 1 : -1) : -1
-      stay(1, 'pause')
-      stay(4 + rnd() * 6, rnd() < 0.5 ? 'wave' : 'watch')
-    } else if (roll < 0.74) {
-      stay(2.4, 'spin')
+      stay(0.8, 'pause')
+      stay(4 + rnd() * 6, rnd() < 0.45 ? 'wave' : 'watch')
+    } else if (roll < 0.54) {
+      // to the window: gaze out, sometimes sit on the sill
+      walkTo(rnd() < 0.5 ? 'win2' : 'win3')
+      stay(5 + rnd() * 6, 'watch')
+      if (rnd() < 0.5) stay(6 + rnd() * 8, 'sit')
+    } else if (roll < 0.62) {
+      // browse the bookshelf, read under the lamp
+      walkTo(rnd() < 0.6 ? 'shelf' : 'lamp')
+      stay(4 + rnd() * 5, 'watch')
+      if (rnd() < 0.4) stay(6 + rnd() * 6, 'sit')
+    } else if (roll < 0.76) {
+      // explore somewhere at random and look about
+      walkTo(spots[Math.floor(rnd() * spots.length)]!)
+      look()
     } else if (roll < 0.86) {
-      // a sudden dash to the far side, then a doze
+      // play: a spin or a few hops
+      stay(2.4, rnd() < 0.5 ? 'spin' : 'play')
+    } else if (roll < 0.94) {
+      // a sudden dash off, then a doze by the plant
       walkTo(rnd() < 0.5 ? 'br' : 'nap', RUN)
       walkTo('nap')
-      stay(7 + rnd() * 5, 'sleep')
+      stay(8 + rnd() * 6, 'sleep')
       stay(3, 'stretch')
     } else {
       stay(3, 'stretch')
     }
-    stay(1.5 + rnd() * 4, 'pause')
+    stay(1.2 + rnd() * 3.5, 'pause')
   }
   // home again, so the loop joins up
   walkTo(nearest(start))
@@ -184,6 +219,8 @@ export function tripStyle(trip: Trip): string {
   const spans = (act: Act) => legs.filter(l => l.act === act).map(l => [l.t0, l.t1] as [number, number])
   const wave = spans('wave')
   const sleep = spans('sleep')
+  const sat = [...sleep, ...spans('sit')].sort((x, y) => x[0] - y[0])
+  const play = spans('play')
   const stretch = spans('stretch')
   const boo = spans('boo')
   const tiptoe = spans('tiptoe')
@@ -213,7 +250,7 @@ export function tripStyle(trip: Trip): string {
 @keyframes junSpin{${spinFrames.join('')}}
 @keyframes junStep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
 @keyframes junWaveArm{from{transform:rotate(-12deg)}to{transform:rotate(16deg)}}
-${windows('junSit', 'transform', 'translateY(3px)', 'translateY(0)', sleep, total)}
+${windows('junSit', 'transform', 'translateY(3px)', 'translateY(0)', sat, total)}
 ${windows('junWave', 'opacity', '1', '0', wave, total)}
 ${windows('junDown', 'opacity', '0', '1', busyArms, total)}
 ${windows('junUp', 'opacity', '1', '0', stretch, total)}
@@ -222,5 +259,5 @@ ${windows('junShut', 'opacity', '1', '0', sleep, total)}
 ${windows('junZz', 'opacity', '1', '0', sleep, total)}
 ${windows('junBoo', 'opacity', '1', '0', boo, total)}
 ${windows('junCrouch', 'transform', 'translateY(2.5px) scaleY(.94)', 'translateY(0) scaleY(1)', tiptoe, total)}
-@keyframes junJump{0%{transform:translateY(0)}${boo.map(([a, b]) => `${pc(a, total)}{transform:translateY(0)}${pc(a + (b - a) * 0.3, total)}{transform:translateY(-7px)}${pc(a + (b - a) * 0.6, total)}{transform:translateY(0)}`).join('')}100%{transform:translateY(0)}}`
+@keyframes junJump{0%{transform:translateY(0)}${[...boo, ...play].sort((x, y) => x[0] - y[0]).map(([a, b]) => `${pc(a, total)}{transform:translateY(0)}${pc(a + (b - a) * 0.3, total)}{transform:translateY(-7px)}${pc(a + (b - a) * 0.6, total)}{transform:translateY(0)}`).join('')}100%{transform:translateY(0)}}`
 }
