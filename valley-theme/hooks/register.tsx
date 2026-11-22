@@ -1,7 +1,7 @@
 import type { Register, ThemeMessageRule, ThemeSetArgs } from 'claude-code'
 
 import { makeColors } from './make-colors.js'
-import { consoleView, startConsole } from './console'
+import { consoleView, registerConsole, startConsole } from './console'
 import { dailyView, registerDaily, startDaily } from './daily'
 import { SCENE } from './scene'
 import { registerTidy, startTidy, tidyView } from './tidy'
@@ -73,6 +73,7 @@ const LOOK: ThemeSetArgs = {
 
 export const register: Register = on => {
   registerDaily(on)
+  registerConsole(on)
   registerUsage(on)
   registerTidy(on)
 

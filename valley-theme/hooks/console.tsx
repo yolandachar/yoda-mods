@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, RenderInput } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { ConsoleRow, DailyWeather, StepState } from '../types'
 import { junAt, junNextChange, junPicture } from './jun-life'
@@ -11,7 +11,7 @@ import { CAST_STYLE, jun, seedOf, yoda, yodaDressed, yodaLife } from './studio-c
 // list has got, and what is waiting on the person. It reads the desktop app's
 // session records and each session's transcript tail; it writes nothing.
 
-const REFRESH_MS = 30000
+const REFRESH_MS = 5000 // a cheap look: only files whose modified time moved are read again
 const TAIL_BYTES = 3 * 1024 * 1024
 const RECENT_DAYS = 7
 // A task that finished this recently still celebrates.
@@ -67,7 +67,7 @@ function applyPlan(steps: Step[], input: Record<string, unknown>): Step[] {
   return next
 }
 
-type Tail = { steps: Step[]; ask: string; recap: string; isAsking: boolean; isError: boolean }
+type Tail = { steps: Step[]; ask: string; recap: string; isAsking: boolean; isError: boolean; turnOpen: boolean }
 
 // Walks the transcript tail for the task list, the last wrap-up and an open question.
 function readTail(text: string): Tail {
@@ -76,6 +76,9 @@ function readTail(text: string): Tail {
   let recap = ''
   let isAsking = false
   let isError = false
+  // Is a turn still open? The last message decides: an assistant reply that ended its
+  // turn (end_turn) closes it; a tool call, a tool result or a new message keeps it open.
+  let turnOpen = false
   const lines = text.split('\n')
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i] ?? ''
@@ -86,7 +89,12 @@ function readTail(text: string): Tail {
     const isUser = line.includes('"type":"user"')
     const isAssistant = line.includes('"type":"assistant"')
     // The last word was an API error, until the person or a fine reply moves on.
+    if (line.startsWith('{"parentUuid"') || line.includes('"type":"assistant"') || line.includes('"type":"user"')) {
+      if (line.includes('"type":"assistant"') && !line.includes('"isApiErrorMessage":true')) turnOpen = !line.includes('"stop_reason":"end_turn"')
+      else if (line.includes('"type":"user"')) turnOpen = true
+    }
     if (line.includes('"isApiErrorMessage":true') || line.includes('"subtype":"api_error"')) {
+      turnOpen = false
       isError = true
       continue
     }
@@ -129,8 +137,52 @@ function readTail(text: string): Tail {
       }
     }
   }
-  return { steps, ask, recap, isAsking, isError }
+  return { steps, ask, recap, isAsking, isError, turnOpen }
 }
+
+// Each session's row as last read, with the modified times it was read at.
+const rowCache = new Map<string, { sessionAt: number; transcriptAt: number; row: ConsoleRow | null }>()
+
+async function readSessionCached($: EngineInterface, home: string, file: string, now: number): Promise<ConsoleRow | null> {
+  let sessionAt = 0
+  try {
+    sessionAt = (await $.fs.stat(file)).mtimeMs
+  } catch {
+    return null
+  }
+  const have = rowCache.get(file)
+  // the transcript moves more often than the session record: look at its time too
+  let transcriptAt = 0
+  if (have && have.sessionAt === sessionAt && have.row) {
+    const p = transcriptPaths.get(file)
+    if (p) {
+      try {
+        transcriptAt = (await $.fs.stat(p)).mtimeMs
+      } catch {
+        transcriptAt = 0
+      }
+    }
+    // nothing moved: keep the row, but let "done a moment ago" age into "done"
+    if (transcriptAt === have.transcriptAt) {
+      const row = have.row
+      if (row.status === 'done' && now - row.edgeAt >= JUST_DONE_MS) return { ...row, status: 'idle' }
+      return row
+    }
+  }
+  const row = await readSession($, home, file, now)
+  const p = transcriptPaths.get(file)
+  if (p) {
+    try {
+      transcriptAt = (await $.fs.stat(p)).mtimeMs
+    } catch {
+      transcriptAt = 0
+    }
+  }
+  rowCache.set(file, { sessionAt, transcriptAt, row })
+  return row
+}
+
+const transcriptPaths = new Map<string, string>()
 
 async function readSession($: EngineInterface, home: string, file: string, now: number): Promise<ConsoleRow | null> {
   let d: Record<string, unknown>
@@ -146,19 +198,25 @@ async function readSession($: EngineInterface, home: string, file: string, now: 
   const cli = typeof d['cliSessionId'] === 'string' ? d['cliSessionId'] : ''
   const userAt = typeof d['latestUserFrameAt'] === 'number' ? d['latestUserFrameAt'] : 0
   const edgeAt = typeof d['lastTurnEdgeAt'] === 'number' ? d['lastTurnEdgeAt'] : 0
-  const isRunning = userAt > edgeAt && now - userAt < 6 * 3600000
 
-  let tail: Tail = { steps: [], ask: '', recap: '', isAsking: false, isError: false }
+  let tail: Tail = { steps: [], ask: '', recap: '', isAsking: false, isError: false, turnOpen: false }
+  let transcriptAt = 0
   if (cwd && cli) {
     const path = `${home}/.claude/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${cli}.jsonl`
+    transcriptPaths.set(file, path)
     try {
-      const { size } = await $.fs.stat(path)
+      const { size, mtimeMs } = await $.fs.stat(path)
+      transcriptAt = mtimeMs
       const offset = Math.max(0, size - TAIL_BYTES)
       tail = readTail(await $.fs.read(path, { offset, length: size - offset }))
     } catch {
       // no transcript yet
     }
   }
+  // Working = the transcript's last message leaves a turn open, and it moved in the last
+  // 10 minutes (an open turn that went quiet longer than that was stopped or lost).
+  const isRunning = tail.turnOpen && now - transcriptAt < 10 * 60000 && !tail.isAsking
+  void userAt
   const total = tail.steps.length
   const done = tail.steps.filter(s => s.status === 'completed').length
   const current = tail.steps.find(s => s.status === 'in_progress')?.content ?? ''
@@ -206,7 +264,7 @@ export async function refreshConsole($: EngineInterface) {
   }
   const rows: ConsoleRow[] = []
   for (const file of files) {
-    const row = await readSession($, home, file, now)
+    const row = await readSessionCached($, home, file, now)
     if (row) rows.push(row)
   }
   const rank = { error: 0, waiting: 0, running: 1, done: 2, idle: 3 } as const
@@ -221,9 +279,29 @@ export async function refreshConsole($: EngineInterface) {
   if (meaning(before) !== meaning(next)) await update($, rowsAtom, () => next)
 }
 
+let refreshing = false
+async function refreshSoon($: EngineInterface) {
+  if (refreshing) return
+  refreshing = true
+  try {
+    await refreshConsole($)
+  } finally {
+    refreshing = false
+  }
+}
+
+/** A turn ending in this session updates the board at once; everything else is seen by the 5-second look. */
+export function registerConsole(on: On) {
+  on('turn.complete', async ($, e, next) => {
+    const out = await next(e)
+    void $.clock.sleep(400).then(() => refreshSoon($)).catch(() => undefined)
+    return out
+  })
+}
+
 export async function startConsole($: EngineInterface) {
   void refreshConsole($).catch(error => $.ui.log('console: ' + String(error)))
-  $.clock.every(REFRESH_MS, () => void refreshConsole($).catch(error => $.ui.log('console: ' + String(error))))
+  $.clock.every(REFRESH_MS, () => void refreshSoon($).catch(error => $.ui.log('console: ' + String(error))))
 }
 
 // Lets long words break anywhere: an invisible break point every 8 characters of a run
