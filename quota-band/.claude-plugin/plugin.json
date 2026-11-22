@@ -1,0 +1,1 @@
+{ "name": "quota-band", "version": "0.1.0", "description": "A quiet usage line under the prompt: 5-hour and weekly usage left, and when each resets", "types": "./types/index.d.ts" }
