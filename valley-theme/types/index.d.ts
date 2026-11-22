@@ -82,6 +82,7 @@ declare module 'claude-code' {
       sceneBusy: boolean
       consoleRows: Shaped<ConsoleRow[]>
       consoleAt: number
+      studioArrivals: number
       consoleOpen: Shaped<string[]>
       padEdit: Shaped<{ at: number; text: string }>
       padSettings: boolean

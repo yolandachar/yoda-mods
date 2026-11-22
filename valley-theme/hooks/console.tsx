@@ -239,6 +239,9 @@ function clock(at: number): string {
 }
 
 const weatherAtom = atom({ plugin: 'valley-theme', key: 'dailyWeather' } as const, null as DailyWeather | null, { shape: 'daily-weather-1' })
+// Bumped when a Yoda arrives, so her settled picture replaces the walking one once.
+const arrivalAtom = atom({ plugin: 'valley-theme', key: 'studioArrivals' } as const, 0)
+let arrivalPlanned = 0
 const openAtom = atom({ plugin: 'valley-theme', key: 'consoleOpen' } as const, [] as string[], { shape: 'console-open-1' })
 
 // ---- the little valley: one sprite per task, placed by what it is doing ----
@@ -469,60 +472,105 @@ function seatPoint(zone: Zone, seat: number): Pt {
   return [238 + (seat % 3) * 22, 112 + Math.floor(seat / 3) * 44]
 }
 
-// Where each Yoda last stood, and her last picture: a picture is rebuilt only when her
-// own place or state changes, and then it opens with her walking over from where she was.
-const lastSpot = new Map<string, Pt>()
-const yodaCache = new Map<string, { key: string; svg: string }>()
+// Each Yoda moves only when her own state changes, in an explicit flow:
+//   state changed → walking (a temporary picture, timed by the real clock) → arrived → settled
+// The walk is never part of her settled picture, so a redraw can never replay it, and
+// a walk cut short by another change starts from wherever she is at that moment.
+type Move = { route: Pt[]; lens: number[]; start: number; secs: number }
+const RISE = 0.8 // seconds to stand up before walking
 const YODA_WALK = 30 // px per second
+const spot = new Map<string, Pt>() // where each Yoda is (or is heading)
+const moving = new Map<string, Move>() // walks in progress
+const settled = new Map<string, { key: string; svg: string }>()
 
-function walkIn(id: string, from: Pt, to: Pt): { css: string; walker: string; delay: number } {
+function moveOf(from: Pt, to: Pt, now: number): Move | null {
   const route = routeBetween(from, to)
   const lens = route.slice(1).map((p, i) => Math.hypot(p[0] - route[i]![0], p[1] - route[i]![1]))
-  const total = lens.reduce((a, b) => a + b, 0)
-  if (total < 1) return { css: '', walker: '', delay: 0 }
-  const rise = 0.8 // standing up first
-  const T = rise + total / YODA_WALK
-  const frames: string[] = [`0%{transform:translate(${from[0] - to[0]}px,${from[1] - to[1]}px)}`]
-  let acc = 0
-  route.slice(1).forEach((p, i) => {
-    acc += lens[i]!
-    const pct = ((rise + acc / YODA_WALK) / T) * 100
-    frames.push(`${pct.toFixed(2)}%{transform:translate(${(p[0] - to[0]).toFixed(1)}px,${(p[1] - to[1]).toFixed(1)}px)}`)
-  })
-  frames.splice(1, 0, `${((rise / T) * 100).toFixed(2)}%{transform:translate(${from[0] - to[0]}px,${from[1] - to[1]}px)}`)
-  const k = 'w' + seedOf(id)
-  const face = to[0] >= from[0] ? 1 : -1
-  const css = `.${k}{animation:${k} ${T.toFixed(2)}s linear 1 both}@keyframes ${k}{${frames.join('')}}
-.${k}o{animation:${k}o ${T.toFixed(2)}s linear 1 both}@keyframes ${k}o{0%,95%{opacity:1}100%{opacity:0}}
-.${k}i{animation:${k}i ${(T + 0.6).toFixed(2)}s linear 1 both}@keyframes ${k}i{0%,${((T / (T + 0.6)) * 100).toFixed(1)}%{opacity:0}100%{opacity:1}}`
-  const walker = `<g class="${k}o"><g class="${k}"><g transform="translate(${to[0]} ${to[1]}) scale(${face} 1)"><g class="walkStep">${yodaDressed('walk', 'casual', false)}</g></g></g></g>`
-  return { css, walker, delay: T }
+  const dist = lens.reduce((a, b) => a + b, 0)
+  return dist < 1 ? null : { route, lens, start: now, secs: RISE + dist / YODA_WALK }
 }
 
-/** One Yoda's own picture: herself, and the furniture in front of her seat. */
-function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string): string {
-  const [x, y] = seatPoint(zone, seat)
-  const key = `${zone}|${seat}|${state}`
-  const cached = yodaCache.get(id)
-  if (cached && cached.key === key) return cached.svg
-  const from = lastSpot.get(id)
-  lastSpot.set(id, [x, y])
-  const walk = from && (from[0] !== x || from[1] !== y) ? walkIn(id, from, [x, y]) : { css: '', walker: '', delay: 0 }
-  let front = ''
+/** Where she is `now` along a walk. */
+function whereOn(m: Move, now: number): Pt {
+  const s = (now - m.start) / 1000 - RISE
+  if (s <= 0) return m.route[0]!
+  let left = s * YODA_WALK
+  for (let i = 0; i < m.lens.length; i++) {
+    const len = m.lens[i]!
+    const a = m.route[i]!
+    const b = m.route[i + 1]!
+    if (left <= len) return [a[0] + ((b[0] - a[0]) * left) / len, a[1] + ((b[1] - a[1]) * left) / len]
+    left -= len
+  }
+  return m.route[m.route.length - 1]!
+}
+
+/** The moment the next walk ends, so the pane can swap in her settled picture then. */
+export function nextArrival(now: number): number | null {
+  let soonest: number | null = null
+  for (const m of moving.values()) {
+    const end = m.start + m.secs * 1000
+    if (end > now && (soonest === null || end < soonest)) soonest = end
+  }
+  return soonest
+}
+
+function frontOf(zone: Zone, seat: number): string {
   if (zone === 'desk') {
     const [dx, dy] = DESKS[seat]!
-    front = `${desk(dx, dy)}<g class="screen" fill="#ffffff" opacity=".7"><rect x="${dx - 5}" y="${dy - 9}" width="6" height="1.2"/><rect x="${dx - 5}" y="${dy - 6.5}" width="9" height="1.2"/></g>`
-  } else if (zone === 'rest') {
+    return `${desk(dx, dy)}<g class="screen" fill="#ffffff" opacity=".7"><rect x="${dx - 5}" y="${dy - 9}" width="6" height="1.2"/><rect x="${dx - 5}" y="${dy - 6.5}" width="9" height="1.2"/></g>`
+  }
+  if (zone === 'rest') {
     const row = Math.floor(seat / 3)
     const cx = 238 + (seat % 3) * 22
-    front = row === 0
+    return row === 0
       ? `<rect x="${cx - 11}" y="124" width="22" height="12" fill="#f28da4"/><path d="M${cx - 11} 124 H${cx + 11} M${cx - 11} 136 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
       : `<rect x="${cx - 11}" y="168" width="22" height="12" fill="#7fcfb6"/><path d="M${cx - 11} 168 H${cx + 11} M${cx - 11} 180 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
   }
+  return ''
+}
+
+/** The walking picture: only her, walking; the clock decides how far along she is. */
+function walkingSvg(id: string, m: Move, now: number): string {
+  const to = m.route[m.route.length - 1]!
+  const frames: string[] = []
+  let acc = 0
+  frames.push(`0%{transform:translate(${(m.route[0]![0] - to[0]).toFixed(1)}px,${(m.route[0]![1] - to[1]).toFixed(1)}px)}`)
+  frames.push(`${((RISE / m.secs) * 100).toFixed(2)}%{transform:translate(${(m.route[0]![0] - to[0]).toFixed(1)}px,${(m.route[0]![1] - to[1]).toFixed(1)}px)}`)
+  m.route.slice(1).forEach((p, i) => {
+    acc += m.lens[i]!
+    frames.push(`${(((RISE + acc / YODA_WALK) / m.secs) * 100).toFixed(2)}%{transform:translate(${(p[0] - to[0]).toFixed(1)}px,${(p[1] - to[1]).toFixed(1)}px)}`)
+  })
   const k = 'w' + seedOf(id)
-  const life = walk.walker === '' ? yodaLife(x, y, state, id) : `<g class="${k}i">${yodaLife(x, y, state, id)}</g>`
-  const svg = `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}.walkStep{animation:walkStep .5s ease-in-out infinite}@keyframes walkStep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}${walk.css}</style>${life}${walk.walker}${front}</svg>`
-  yodaCache.set(id, { key, svg })
+  const elapsed = Math.max(0, (now - m.start) / 1000)
+  const face = to[0] >= m.route[0]![0] ? 1 : -1
+  // runs once, from how far she has already come; held at the end until the swap
+  const css = `.${k}{animation:${k} ${m.secs.toFixed(2)}s linear 1 both;animation-delay:-${elapsed.toFixed(2)}s}@keyframes ${k}{${frames.join('')}}.walkStep{animation:walkStep .5s ease-in-out infinite}@keyframes walkStep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}`
+  return `${OPEN}<style>${CAST_STYLE}${css}</style><g class="${k}"><g transform="translate(${to[0]} ${to[1]}) scale(${face} 1)">${yodaDressed('walk', 'casual', false)}</g></g></svg>`
+}
+
+/** One Yoda's own picture: walking while she moves, else settled at her seat. */
+function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string, now: number): string {
+  const target = seatPoint(zone, seat)
+  const was = spot.get(id)
+  // her place changed: start a walk from wherever she is right now
+  if (was && (was[0] !== target[0] || was[1] !== target[1])) {
+    const cur = moving.get(id)
+    const from = cur && now < cur.start + cur.secs * 1000 ? whereOn(cur, now) : was
+    const m = moveOf(from, target, now)
+    if (m) moving.set(id, m)
+    else moving.delete(id)
+  }
+  spot.set(id, target)
+  const m = moving.get(id)
+  if (m && now < m.start + m.secs * 1000) return walkingSvg(id, m, now)
+  moving.delete(id)
+  // arrived (or never moved): her settled picture, the same text until her state changes
+  const key = `${zone}|${seat}|${state}`
+  const have = settled.get(id)
+  if (have && have.key === key) return have.svg
+  const svg = `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yodaLife(target[0], target[1], state, id)}${frontOf(zone, seat)}</svg>`
+  settled.set(id, { key, svg })
   return svg
 }
 
@@ -557,14 +605,15 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
   const deskSeats = seatAll('desk', cast.running.map(r => r.id))
   const restSeats = seatAll('rest', cast.resting.map(r => r.id))
   const present = new Set(rows.map(r => r.id))
-  for (const id of [...yodaCache.keys()]) if (!present.has(id)) {
-    yodaCache.delete(id)
-    lastSpot.delete(id)
+  for (const id of [...settled.keys()]) if (!present.has(id)) {
+    settled.delete(id)
+    spot.delete(id)
+    moving.delete(id)
   }
   const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }]
-  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id), alt: r.title })
-  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id), alt: r.title })
-  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id), alt: r.title })
+  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now), alt: r.title })
+  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now), alt: r.title })
+  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now), alt: r.title })
   layers.push({ key: 'jun', svg: junSvg(), alt: '俊俊' })
   layers.push({ key: 'light', svg: lightSvg(now), alt: '' })
   return layers
@@ -589,6 +638,12 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
   if (e.surface === 'desktop' || e.surface === 'mobile') {
     const { Svg } = $.ui.resolve(e)
     const layers = sceneLayers(rows, now, skyOf((await read($, weatherAtom))?.code))
+    await read($, arrivalAtom)
+    const arrive = nextArrival(now)
+    if (arrive !== null && arrive !== arrivalPlanned) {
+      arrivalPlanned = arrive
+      $.clock.after(arrive - now + 50, () => void update($, arrivalAtom, n => n + 1))
+    }
     const [room, ...over] = layers
     art = (
       <Box key="studio-stack" position="relative" flexDirection="column">

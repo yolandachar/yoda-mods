@@ -303,7 +303,7 @@ export function yodaLife(x: number, y: number, state: YodaState, id: string): st
   }
   const secs = moments.map(() => 30 + Math.round(rnd() * 20))
   const total = secs.reduce((a, b) => a + b, 0)
-  const fade = 1.4
+  const fade = 0.35 // short, so two poses never linger see-through together
   const pc = (t: number) => `${((((t % total) + total) % total) / total * 100).toFixed(3)}%`
   let css = ''
   let body = ''
