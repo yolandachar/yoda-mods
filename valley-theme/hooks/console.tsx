@@ -308,6 +308,8 @@ export async function startConsole($: EngineInterface) {
 // with no space, and after / _ - . so paths and file names wrap too. The text reads the same.
 function soft(text: string): string {
   return text
+    // Chinese, Japanese and Korean have no spaces: allow a break after every character
+    .replace(/([\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F])/g, '$1\u200B')
     .replace(/([/_\-.])/g, '$1\u200B')
     .replace(/[^\s\u200B]{8}(?=[^\s\u200B])/g, m => m + '\u200B')
 }
@@ -756,12 +758,12 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
     const shown = isOpen ? list : list.slice(0, 3)
     return (
       <Box key={'col-' + col} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={1}>
-        <Text bold>
-          {title} <Text dimColor>{list.length}</Text>
+        <Text bold wrap="wrap">
+          {soft(title)} <Text dimColor>{list.length}</Text>
         </Text>
         {list.length === 0 && (
           <Box borderStyle="single" paddingX={1}>
-            <Text dimColor wrap="wrap">{empty}</Text>
+            <Text dimColor wrap="wrap">{soft(empty)}</Text>
           </Box>
         )}
         {shown.map(r => (
@@ -797,7 +799,7 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
       {art}
       <Box flexDirection="row" gap={1} width="100%" minWidth={0}>
         {column('wait', '📮 等你回覆', waiting, '沒有人在等你', r => `等了 ${ago(now - r.edgeAt)}`)}
-        {column('work', '⏳ 工作中', running, '現在沒人在工作', r => `${ago(now - r.lastAt)}前更新`)}
+        {column('work', '⏳ 工作中', running, '現在沒人在工作', r => (now - r.lastAt < 60000 ? '剛剛更新' : `${ago(now - r.lastAt)}前更新`))}
         {column('done', '✅ 做完了', idle, '還沒有做完的', r => `${clock(r.edgeAt)} 做完`)}
       </Box>
       <Button key="console-refresh" dimColor onPress={() => refreshConsole($)}>
