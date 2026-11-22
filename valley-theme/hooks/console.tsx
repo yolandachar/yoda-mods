@@ -2,9 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderInput } from 'claude-code'
 
 import type { ConsoleRow, DailyWeather, StepState } from '../types'
-import { planTrip, positionAt, tripStyle } from './jun-route'
+import { planTrip, positionAt, routeBetween, tripStyle } from './jun-route'
 import type { Area, Pt, Trip } from './jun-route'
-import { CAST_STYLE, jun, seedOf, yoda, yodaLife } from './studio-cast'
+import { CAST_STYLE, jun, seedOf, yoda, yodaDressed, yodaLife } from './studio-cast'
 
 // The task console: every Claude session on this computer, how far its task
 // list has got, and what is waiting on the person. It reads the desktop app's
@@ -469,9 +469,45 @@ function seatPoint(zone: Zone, seat: number): Pt {
   return [238 + (seat % 3) * 22, 112 + Math.floor(seat / 3) * 44]
 }
 
+// Where each Yoda last stood, and her last picture: a picture is rebuilt only when her
+// own place or state changes, and then it opens with her walking over from where she was.
+const lastSpot = new Map<string, Pt>()
+const yodaCache = new Map<string, { key: string; svg: string }>()
+const YODA_WALK = 30 // px per second
+
+function walkIn(id: string, from: Pt, to: Pt): { css: string; walker: string; delay: number } {
+  const route = routeBetween(from, to)
+  const lens = route.slice(1).map((p, i) => Math.hypot(p[0] - route[i]![0], p[1] - route[i]![1]))
+  const total = lens.reduce((a, b) => a + b, 0)
+  if (total < 1) return { css: '', walker: '', delay: 0 }
+  const rise = 0.8 // standing up first
+  const T = rise + total / YODA_WALK
+  const frames: string[] = [`0%{transform:translate(${from[0] - to[0]}px,${from[1] - to[1]}px)}`]
+  let acc = 0
+  route.slice(1).forEach((p, i) => {
+    acc += lens[i]!
+    const pct = ((rise + acc / YODA_WALK) / T) * 100
+    frames.push(`${pct.toFixed(2)}%{transform:translate(${(p[0] - to[0]).toFixed(1)}px,${(p[1] - to[1]).toFixed(1)}px)}`)
+  })
+  frames.splice(1, 0, `${((rise / T) * 100).toFixed(2)}%{transform:translate(${from[0] - to[0]}px,${from[1] - to[1]}px)}`)
+  const k = 'w' + seedOf(id)
+  const face = to[0] >= from[0] ? 1 : -1
+  const css = `.${k}{animation:${k} ${T.toFixed(2)}s linear 1 both}@keyframes ${k}{${frames.join('')}}
+.${k}o{animation:${k}o ${T.toFixed(2)}s linear 1 both}@keyframes ${k}o{0%,95%{opacity:1}100%{opacity:0}}
+.${k}i{animation:${k}i ${(T + 0.6).toFixed(2)}s linear 1 both}@keyframes ${k}i{0%,${((T / (T + 0.6)) * 100).toFixed(1)}%{opacity:0}100%{opacity:1}}`
+  const walker = `<g class="${k}o"><g class="${k}"><g transform="translate(${to[0]} ${to[1]}) scale(${face} 1)"><g class="walkStep">${yodaDressed('walk', 'casual', false)}</g></g></g></g>`
+  return { css, walker, delay: T }
+}
+
 /** One Yoda's own picture: herself, and the furniture in front of her seat. */
 function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string): string {
   const [x, y] = seatPoint(zone, seat)
+  const key = `${zone}|${seat}|${state}`
+  const cached = yodaCache.get(id)
+  if (cached && cached.key === key) return cached.svg
+  const from = lastSpot.get(id)
+  lastSpot.set(id, [x, y])
+  const walk = from && (from[0] !== x || from[1] !== y) ? walkIn(id, from, [x, y]) : { css: '', walker: '', delay: 0 }
   let front = ''
   if (zone === 'desk') {
     const [dx, dy] = DESKS[seat]!
@@ -483,7 +519,11 @@ function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id
       ? `<rect x="${cx - 11}" y="124" width="22" height="12" fill="#f28da4"/><path d="M${cx - 11} 124 H${cx + 11} M${cx - 11} 136 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
       : `<rect x="${cx - 11}" y="168" width="22" height="12" fill="#7fcfb6"/><path d="M${cx - 11} 168 H${cx + 11} M${cx - 11} 180 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
   }
-  return `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yodaLife(x, y, state, id)}${front}</svg>`
+  const k = 'w' + seedOf(id)
+  const life = walk.walker === '' ? yodaLife(x, y, state, id) : `<g class="${k}i">${yodaLife(x, y, state, id)}</g>`
+  const svg = `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}.walkStep{animation:walkStep .5s ease-in-out infinite}@keyframes walkStep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}${walk.css}</style>${life}${walk.walker}${front}</svg>`
+  yodaCache.set(id, { key, svg })
+  return svg
 }
 
 // 俊俊's picture is made once for the life of this pane and never changes, so nothing
@@ -516,6 +556,11 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
   const waitSeats = seatAll('wait', cast.waiting.map(r => r.id))
   const deskSeats = seatAll('desk', cast.running.map(r => r.id))
   const restSeats = seatAll('rest', cast.resting.map(r => r.id))
+  const present = new Set(rows.map(r => r.id))
+  for (const id of [...yodaCache.keys()]) if (!present.has(id)) {
+    yodaCache.delete(id)
+    lastSpot.delete(id)
+  }
   const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }]
   for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id), alt: r.title })
   for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id), alt: r.title })

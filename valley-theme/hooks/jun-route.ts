@@ -132,10 +132,28 @@ export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): 
     }
   }
   const spots = Object.keys(NODES)
-  const visits = 18 + Math.floor(rnd() * 10)
-  for (let i = 0; i < visits; i++) {
+  // His rhythm: mostly quiet (sitting, gazing, dozing for a good while), with an
+  // occasional outing between. An outing is one or two things, then he settles again.
+  const settle = () => {
+    const r = rnd()
+    if (r < 0.3) {
+      walkTo(rnd() < 0.5 ? 'win2' : 'win3')
+      stay(25 + rnd() * 45, 'sit') // on the sill, watching the sky
+    } else if (r < 0.5) {
+      walkTo(rnd() < 0.6 ? 'lamp' : 'shelf')
+      stay(30 + rnd() * 50, 'sit') // reading under the lamp
+    } else if (r < 0.72) {
+      walkTo('nap')
+      stay(40 + rnd() * 60, 'sleep') // a proper nap
+      stay(3, 'stretch')
+    } else {
+      stay(20 + rnd() * 30, 'watch') // just standing about, daydreaming
+      look()
+    }
+  }
+  const outing = () => {
     const roll = rnd()
-    if (areas.length > 0 && roll < 0.12) {
+    if (areas.length > 0 && roll < 0.14) {
       // mischief: tiptoe up to a Yoda, then jump out with a "!"
       const area = areas[Math.floor(rnd() * areas.length)]!
       walkTo(AREA_NODE[area])
@@ -144,40 +162,29 @@ export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): 
       stay(1.6, 'boo')
       stay(1, 'pause')
       walkTo(rnd() < 0.5 ? 'bm' : 'tm', RUN)
-    } else if (areas.length > 0 && roll < 0.42) {
-      // pay a Yoda a visit: say hello, or just watch her work
+    } else if (areas.length > 0 && roll < 0.55) {
+      // pay a Yoda a visit: say hello, or watch her work for a while
       const area = areas[Math.floor(rnd() * areas.length)]!
       walkTo(AREA_NODE[area])
       face = area === 'rest1' || area === 'rest2' ? 1 : area === 'desk1' || area === 'desk2' ? (rnd() < 0.5 ? 1 : -1) : -1
       stay(0.8, 'pause')
-      stay(4 + rnd() * 6, rnd() < 0.45 ? 'wave' : 'watch')
-    } else if (roll < 0.54) {
-      // to the window: gaze out, sometimes sit on the sill
-      walkTo(rnd() < 0.5 ? 'win2' : 'win3')
-      stay(5 + rnd() * 6, 'watch')
-      if (rnd() < 0.5) stay(6 + rnd() * 8, 'sit')
-    } else if (roll < 0.62) {
-      // browse the bookshelf, read under the lamp
-      walkTo(rnd() < 0.6 ? 'shelf' : 'lamp')
-      stay(4 + rnd() * 5, 'watch')
-      if (rnd() < 0.4) stay(6 + rnd() * 6, 'sit')
-    } else if (roll < 0.76) {
-      // explore somewhere at random and look about
+      stay(6 + rnd() * 10, rnd() < 0.4 ? 'wave' : 'watch')
+    } else if (roll < 0.8) {
+      // explore a corner and look about
       walkTo(spots[Math.floor(rnd() * spots.length)]!)
       look()
-    } else if (roll < 0.86) {
-      // play: a spin or a few hops
+    } else if (roll < 0.9) {
       stay(2.4, rnd() < 0.5 ? 'spin' : 'play')
-    } else if (roll < 0.94) {
-      // a sudden dash off, then a doze by the plant
-      walkTo(rnd() < 0.5 ? 'br' : 'nap', RUN)
-      walkTo('nap')
-      stay(8 + rnd() * 6, 'sleep')
-      stay(3, 'stretch')
     } else {
       stay(3, 'stretch')
     }
-    stay(1.2 + rnd() * 3.5, 'pause')
+    stay(2 + rnd() * 4, 'pause')
+  }
+  const rounds = 8 + Math.floor(rnd() * 5)
+  for (let i = 0; i < rounds; i++) {
+    settle()
+    const n = 1 + Math.floor(rnd() * 2)
+    for (let k = 0; k < n; k++) outing()
   }
   // home again, so the loop joins up
   walkTo(nearest(start))
@@ -260,4 +267,10 @@ ${windows('junZz', 'opacity', '1', '0', sleep, total)}
 ${windows('junBoo', 'opacity', '1', '0', boo, total)}
 ${windows('junCrouch', 'transform', 'translateY(2.5px) scaleY(.94)', 'translateY(0) scaleY(1)', tiptoe, total)}
 @keyframes junJump{0%{transform:translateY(0)}${[...boo, ...play].sort((x, y) => x[0] - y[0]).map(([a, b]) => `${pc(a, total)}{transform:translateY(0)}${pc(a + (b - a) * 0.3, total)}{transform:translateY(-7px)}${pc(a + (b - a) * 0.6, total)}{transform:translateY(0)}`).join('')}100%{transform:translateY(0)}}`
+}
+
+/** A walkway route between two points (for a Yoda walking to her new seat). */
+export function routeBetween(from: Pt, to: Pt): Pt[] {
+  const names = path(nearest(from), nearest(to))
+  return [from, ...names.map(n => NODES[n]!), to]
 }
