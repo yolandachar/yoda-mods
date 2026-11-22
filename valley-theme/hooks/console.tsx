@@ -226,6 +226,14 @@ export async function startConsole($: EngineInterface) {
   $.clock.every(REFRESH_MS, () => void refreshConsole($).catch(error => $.ui.log('console: ' + String(error))))
 }
 
+// Lets long words break anywhere: an invisible break point every 8 characters of a run
+// with no space, and after / _ - . so paths and file names wrap too. The text reads the same.
+function soft(text: string): string {
+  return text
+    .replace(/([/_\-.])/g, '$1\u200B')
+    .replace(/[^\s\u200B]{8}(?=[^\s\u200B])/g, m => m + '\u200B')
+}
+
 function ago(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60000))
   if (min < 1) return '剛剛'
@@ -669,7 +677,7 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
     const isOpen = opened.includes(col)
     const shown = isOpen ? list : list.slice(0, 3)
     return (
-      <Box key={'col-' + col} flexDirection="column" flexGrow={1} flexShrink={1} width="33%" minWidth={0} gap={1}>
+      <Box key={'col-' + col} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={1}>
         <Text bold>
           {title} <Text dimColor>{list.length}</Text>
         </Text>
@@ -679,16 +687,16 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
           </Box>
         )}
         {shown.map(r => (
-          <Box key={col + '-' + r.id} flexDirection="column" borderStyle="single" paddingX={1} minWidth={0}>
-            <Text bold wrap="wrap">{r.title}</Text>
-            {col === 'wait' && r.waiting !== '' && <Text color="warning" wrap="wrap">{r.waiting}</Text>}
+          <Box key={col + '-' + r.id} flexDirection="column" borderStyle="single" paddingX={1} minWidth={0} width="100%">
+            <Text bold wrap="wrap">{soft(r.title)}</Text>
+            {col === 'wait' && r.waiting !== '' && <Text color="warning" wrap="wrap">{soft(r.waiting)}</Text>}
             {col === 'work' && r.total > 0 && (
               <Text dimColor wrap="wrap">
                 {r.done}/{r.total}
-                {r.current !== '' ? ' · ' + r.current : ''}
+                {r.current !== '' ? ' · ' + soft(r.current) : ''}
               </Text>
             )}
-            <Text dimColor wrap="wrap">{meta(r)}</Text>
+            <Text dimColor wrap="wrap">{soft(meta(r))}</Text>
           </Box>
         ))}
         {list.length > 3 && (
@@ -709,7 +717,7 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
         </Text>
       </Text>
       {art}
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection="row" gap={1} width="100%" minWidth={0}>
         {column('wait', '📮 等你回覆', waiting, '沒有人在等你', r => `等了 ${ago(now - r.edgeAt)}`)}
         {column('work', '⏳ 工作中', running, '現在沒人在工作', r => `${ago(now - r.lastAt)}前更新`)}
         {column('done', '✅ 做完了', idle, '還沒有做完的', r => `${clock(r.edgeAt)} 做完`)}
