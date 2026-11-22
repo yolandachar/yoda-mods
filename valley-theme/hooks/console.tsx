@@ -507,11 +507,6 @@ let roomCache = { key: '', svg: '' }
 function roomSvg(now: number, sky: Sky): string {
   if (roomCache.key === sky) return roomCache.svg
   const dayDelay = `animation-delay:-${daySeconds(now)}s`
-  const d = new Date(now)
-  const sec = d.getSeconds()
-  const min = d.getMinutes() + sec / 60
-  const hour = (d.getHours() % 12) + min / 60
-  const at = (turns: number) => `rotate(${(turns * 360).toFixed(1)} 272 21)`
   const svg = `${OPEN}
 <style>${SCENE_STYLE}${DAY_STYLE}
 .skyFill,.sun,.moon,.stars,.glowIn{${dayDelay}}</style>
@@ -522,10 +517,7 @@ function roomSvg(now: number, sky: Sky): string {
 ${windowView(sky)}
 <circle cx="272" cy="21" r="12" fill="#fffaf0" stroke="${INK}" stroke-width="1.6"/>
 <g stroke="${INK}" stroke-width="1"><path d="M272 10.5 V12.5 M272 29.5 V31.5 M261.5 21 H263.5 M280.5 21 H282.5"/></g>
-<g transform="${at(hour / 12)}"><path class="hour" d="M272 21 V15.5" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/></g>
-<g transform="${at(min / 60)}"><path class="min" d="M272 21 V12" stroke="${INK}" stroke-width="1.2" stroke-linecap="round"/></g>
-<g transform="${at(sec / 60)}"><path class="sec" d="M272 22.5 V11" stroke="#e07a6a" stroke-width=".7" stroke-linecap="round"/></g>
-<circle cx="272" cy="21" r="1.2" fill="#e07a6a"/>
+
 ${plant(10, 70)}${plant(12, 188)}
 <rect x="80" y="56" width="12" height="9" fill="#bcd7ef" stroke="${INK}" stroke-width="1"/><path d="M86 65 V80" stroke="#8a5a3a" stroke-width="2"/><path d="M92 58 V52 h4 v3 h-4" fill="#e07a6a" stroke="${INK}" stroke-width=".8"/>
 ${DESKS.map(([x, y]) => desk(x, y)).join('')}
@@ -543,6 +535,28 @@ ${plant(106, 84)}
 <rect x="224" y="168" width="74" height="12" fill="#7fcfb6" stroke="${INK}" stroke-width="1.2"/>
 </svg>`
   roomCache = { key: sky, svg }
+  return svg
+}
+
+// The clock's hands: their own small layer, drawn fresh each minute, so the time is always
+// the real one (also after the pane is reopened). The second hand sweeps on its own.
+let handsCache = { key: -1, svg: '' }
+function handsSvg(now: number): string {
+  const minuteKey = Math.floor(now / 60000)
+  if (handsCache.key === minuteKey) return handsCache.svg
+  const d = new Date(now)
+  const min = d.getMinutes()
+  const hour = (d.getHours() % 12) + min / 60
+  const at = (turns: number) => `rotate(${(turns * 360).toFixed(1)} 272 21)`
+  const svg = `${OPEN}
+<style>.secHand{transform-box:view-box;transform-origin:272px 21px;animation:secSweep 60s linear infinite;animation-delay:-${d.getSeconds()}s}
+@keyframes secSweep{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
+<g transform="${at(hour / 12)}"><path d="M272 21 V15.5" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/></g>
+<g transform="${at(min / 60)}"><path d="M272 21 V12" stroke="${INK}" stroke-width="1.2" stroke-linecap="round"/></g>
+<g class="secHand"><path d="M272 22.5 V11" stroke="#e07a6a" stroke-width=".7" stroke-linecap="round"/></g>
+<circle cx="272" cy="21" r="1.2" fill="#e07a6a"/>
+</svg>`
+  handsCache = { key: minuteKey, svg }
   return svg
 }
 
@@ -712,7 +726,7 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
     spot.delete(id)
     moving.delete(id)
   }
-  const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }]
+  const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }, { key: 'hands', svg: handsSvg(now), alt: '' }]
   for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now), alt: r.title })
   for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now), alt: r.title })
   for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now), alt: r.title })
@@ -743,7 +757,8 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
     const layers = sceneLayers(rows, now, skyOf((await read($, weatherAtom))?.code))
     await read($, arrivalAtom)
     // one redraw at the next moment anything ends: a Yoda arriving, or 俊俊 finishing a stretch
-    const ends = [nextArrival(now), junNextChange()].filter((x): x is number => x !== null && x > now)
+    const nextMinute = (Math.floor(now / 60000) + 1) * 60000
+    const ends = [nextArrival(now), junNextChange(), nextMinute].filter((x): x is number => x !== null && x > now)
     const arrive = ends.length > 0 ? Math.min(...ends) : null
     if (arrive !== null && arrive !== arrivalPlanned) {
       arrivalPlanned = arrive
