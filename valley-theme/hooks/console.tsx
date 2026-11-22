@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderInput } from 'claude-code'
 
 import type { ConsoleRow, DailyWeather, StepState } from '../types'
+import { junAt, junNextChange, junPicture } from './jun-life'
 import { planTrip, positionAt, routeBetween, tripStyle } from './jun-route'
 import type { Area, Pt, Trip } from './jun-route'
 import { CAST_STYLE, jun, seedOf, yoda, yodaDressed, yodaLife } from './studio-cast'
@@ -614,7 +615,8 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
   for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now), alt: r.title })
   for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now), alt: r.title })
   for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now), alt: r.title })
-  layers.push({ key: 'jun', svg: junSvg(), alt: '俊俊' })
+  // 俊俊 follows his own state machine; who is in the room only shapes where he may wander next
+  layers.push({ key: 'jun', svg: junPicture(junAt(now, areasOf(cast)), now), alt: '俊俊' })
   layers.push({ key: 'light', svg: lightSvg(now), alt: '' })
   return layers
 }
@@ -639,7 +641,9 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
     const { Svg } = $.ui.resolve(e)
     const layers = sceneLayers(rows, now, skyOf((await read($, weatherAtom))?.code))
     await read($, arrivalAtom)
-    const arrive = nextArrival(now)
+    // one redraw at the next moment anything ends: a Yoda arriving, or 俊俊 finishing a stretch
+    const ends = [nextArrival(now), junNextChange()].filter((x): x is number => x !== null && x > now)
+    const arrive = ends.length > 0 ? Math.min(...ends) : null
     if (arrive !== null && arrive !== arrivalPlanned) {
       arrivalPlanned = arrive
       $.clock.after(arrive - now + 50, () => void update($, arrivalAtom, n => n + 1))

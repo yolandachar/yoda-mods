@@ -10,7 +10,7 @@ export type Pt = readonly [number, number]
 
 // The whole room as walkway points, each placed clear of the desks, sofas, shelf,
 // lamp, mailbox and plants; he only ever walks straight between linked points.
-const NODES: Record<string, Pt> = {
+export const NODES: Record<string, Pt> = {
   nap: [60, 178], // by the plant, bottom left: his napping spot
   bl: [98, 176],
   bm: [154, 176],
@@ -51,7 +51,7 @@ for (const [a, b] of EDGES) {
 
 /** The walkway spot from which a Yoda in each part of the room is visited. */
 export type Area = 'waiting1' | 'waiting2' | 'desk1' | 'desk2' | 'rest1' | 'rest2'
-const AREA_NODE: Record<Area, string> = {
+export const AREA_NODE: Record<Area, string> = {
   waiting1: 'wl1', waiting2: 'wl2', desk1: 'd1', desk2: 'd2', rest1: 'r1', rest2: 'r2',
 }
 
