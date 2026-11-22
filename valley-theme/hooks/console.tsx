@@ -381,68 +381,47 @@ ${drops}
 <rect x="${x0 - 2}" y="36" width="${x1 - x0 + 4}" height="3" fill="#e9d2b0" stroke="${INK}" stroke-width=".8"/>`
 }
 
-// The last picture handed to the pane. While nobody's state changes the pane gets the
-// very same text, so the drawing is left alone and every animation keeps running.
-// When something does change, 俊俊 sets off on a new trip from wherever he is right now.
-let scene: { sig: string; svg: string; builtAt: number; trip: Trip | null } = { sig: '', svg: '', builtAt: 0, trip: null }
+// ---- the room in layers ----
+// The pane stacks separate pictures, each redrawn only when its own content changes:
+//   room   floor, wall, window, clock, furniture  (only a new kind of weather redraws it)
+//   Yoda   one picture per task                   (only that task's own state redraws it)
+//   俊俊   his own picture, made once             (nothing ever redraws it)
+//   light  dusk and night dimming, the lamp       (made once; it follows the day by itself)
+// A picture whose text is unchanged is left alone, so its animations keep running.
 
-export function sceneFor(rows: readonly ConsoleRow[], now: number, sky: Sky = 'clear'): string {
-  const cast = castOf(rows)
-  // The hour never forces a redraw (the day runs inside the picture); only who is where, and the weather, do.
-  const sig = signatureOf(cast) + '|' + sky
-  if (sig === scene.sig && scene.svg !== '') return scene.svg
-  const start: Pt = scene.trip ? positionAt(scene.trip, (now - scene.builtAt) / 1000) : [100, 176]
-  const trip = planTrip(start, areasOf(cast), Math.random)
-  const svg = valleySvg(cast, now, trip, sky)
-  scene = { sig, svg, builtAt: now, trip }
-  return svg
+const OPEN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 190" width="1500" height="950" preserveAspectRatio="xMidYMid meet">`
+
+function daySeconds(now: number): number {
+  return Math.floor((now - new Date(new Date(now).toDateString()).getTime()) / 1000)
 }
 
-function valleySvg(cast: Cast, now: number, trip: Trip, sky: Sky): string {
-  const since = (now - new Date(new Date(now).toDateString()).getTime()) / 1000
-  const dayDelay = `animation-delay:-${since.toFixed(0)}s`
-  // The clock starts at the real time and the hands keep turning between redraws.
+let roomCache = { key: '', svg: '' }
+function roomSvg(now: number, sky: Sky): string {
+  if (roomCache.key === sky) return roomCache.svg
+  const dayDelay = `animation-delay:-${daySeconds(now)}s`
   const d = new Date(now)
   const sec = d.getSeconds()
   const min = d.getMinutes() + sec / 60
   const hour = (d.getHours() % 12) + min / 60
-  // Each hand rests at the real angle (so it reads right even with motion off), then turns on.
   const at = (turns: number) => `rotate(${(turns * 360).toFixed(1)} 272 21)`
-  const { waiting, running, resting } = cast
-  const waitSprites = waiting
-    .map((r, i) => yoda(22 + (i % 3) * 24, 104 + Math.floor(i / 3) * 40, r.status === 'error' ? 'error' : 'waiting', seedOf(r.id)))
-    .join('')
-  const workSprites = running.map((r, i) => yoda(DESKS[i]![0], DESKS[i]![1] - 12, 'working', seedOf(r.id))).join('')
-  const restSprites = resting
-    .map((r, i) => yoda(238 + (i % 3) * 22, 112 + Math.floor(i / 3) * 44, r.status === 'done' ? 'completed' : 'idle', seedOf(r.id)))
-    .join('')
-  // The one 俊俊: no task, just his own trip round the office.
-  const stroller = jun()
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 190" width="1500" height="950" preserveAspectRatio="xMidYMid meet">
-<style>${SCENE_STYLE}${tripStyle(trip)}${DAY_STYLE.replace(/infinite\}/g, 'infinite}')}
-.skyFill,.sun,.moon,.stars,.glowIn,.dim,.lampOn{${dayDelay}}</style>
+  const svg = `${OPEN}
+<style>${SCENE_STYLE}${DAY_STYLE}
+.skyFill,.sun,.moon,.stars,.glowIn{${dayDelay}}</style>
 <defs><pattern id="tiles" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#f6ecdd"/><rect width="8" height="8" fill="#efe1cd"/><rect x="8" y="8" width="8" height="8" fill="#efe1cd"/></pattern></defs>
-<!-- floor and wall -->
 <rect width="300" height="190" fill="url(#tiles)"/>
 <rect width="300" height="44" fill="#f7efe2"/>
 <rect y="40" width="300" height="5" fill="#d9c3a3"/>
 ${windowView(sky)}
-<!-- the clock -->
 <circle cx="272" cy="21" r="12" fill="#fffaf0" stroke="${INK}" stroke-width="1.6"/>
 <g stroke="${INK}" stroke-width="1"><path d="M272 10.5 V12.5 M272 29.5 V31.5 M261.5 21 H263.5 M280.5 21 H282.5"/></g>
 <g transform="${at(hour / 12)}"><path class="hour" d="M272 21 V15.5" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/></g>
 <g transform="${at(min / 60)}"><path class="min" d="M272 21 V12" stroke="${INK}" stroke-width="1.2" stroke-linecap="round"/></g>
 <g transform="${at(sec / 60)}"><path class="sec" d="M272 22.5 V11" stroke="#e07a6a" stroke-width=".7" stroke-linecap="round"/></g>
 <circle cx="272" cy="21" r="1.2" fill="#e07a6a"/>
-<!-- the waiting corner: mailbox and plants -->
 ${plant(10, 70)}${plant(12, 188)}
 <rect x="80" y="56" width="12" height="9" fill="#bcd7ef" stroke="${INK}" stroke-width="1"/><path d="M86 65 V80" stroke="#8a5a3a" stroke-width="2"/><path d="M92 58 V52 h4 v3 h-4" fill="#e07a6a" stroke="${INK}" stroke-width=".8"/>
-<!-- the work floor: the busy ones sit behind four desks -->
-${workSprites}
 ${DESKS.map(([x, y]) => desk(x, y)).join('')}
-<g class="screen" fill="#ffffff" opacity=".7">${DESKS.slice(0, running.length).map(([x, y]) => `<rect x="${x - 5}" y="${y - 9}" width="6" height="1.2"/><rect x="${x - 5}" y="${y - 6.5}" width="9" height="1.2"/>`).join('')}</g>
 ${plant(106, 84)}
-<!-- the rest area, past a rope: sofa, shelf and lamp -->
 <path d="M220 50 V186" stroke="#c98a5a" stroke-width="3"/>
 <path d="M220 56 V186" stroke="#e9d2b0" stroke-width="1" stroke-dasharray="3 3"/>
 <rect x="230" y="52" width="26" height="34" fill="#e9d2b0" stroke="${INK}" stroke-width="1"/>
@@ -451,15 +430,95 @@ ${plant(106, 84)}
 <path d="M284 86 V58 M278 58 h12 l-3 -7 h-6 Z" stroke="${INK}" stroke-width="1.2" fill="#f2c84b"/>
 <rect x="226" y="114" width="70" height="20" fill="#f4a7b9" stroke="${INK}" stroke-width="1.2"/>
 <rect x="226" y="158" width="70" height="20" fill="#9fdcc8" stroke="${INK}" stroke-width="1.2"/>
-${restSprites}
 <rect x="224" y="124" width="74" height="12" fill="#f28da4" stroke="${INK}" stroke-width="1.2"/>
 <rect x="224" y="168" width="74" height="12" fill="#7fcfb6" stroke="${INK}" stroke-width="1.2"/>
-${stroller}
-${waitSprites}
-<!-- the room's light: dimmer at dusk and night, the lamp glowing -->
-<rect class="dim" width="300" height="190" fill="#1b2140" opacity="0" pointer-events="none"/>
-<circle class="lampOn" cx="284" cy="62" r="26" fill="url(#lampGlow)" opacity="0"/>
 </svg>`
+  roomCache = { key: sky, svg }
+  return svg
+}
+
+// Seats that stay put: a Yoda keeps her seat while her task stays in that part of the room,
+// so others coming and going never move her (and never redraw her).
+type Zone = 'wait' | 'desk' | 'rest'
+const SEATS: Record<Zone, number> = { wait: 6, desk: 4, rest: 6 }
+const seats: Record<Zone, Map<string, number>> = { wait: new Map(), desk: new Map(), rest: new Map() }
+
+function seatAll(zone: Zone, ids: readonly string[]): Map<string, number> {
+  const map = seats[zone]
+  for (const id of [...map.keys()]) if (!ids.includes(id)) map.delete(id)
+  for (const id of ids) {
+    if (map.has(id)) continue
+    const taken = new Set(map.values())
+    for (let s = 0; s < SEATS[zone]; s++) {
+      if (!taken.has(s)) {
+        map.set(id, s)
+        break
+      }
+    }
+  }
+  return map
+}
+
+function seatPoint(zone: Zone, seat: number): Pt {
+  if (zone === 'wait') return [22 + (seat % 3) * 24, 104 + Math.floor(seat / 3) * 40]
+  if (zone === 'desk') return [DESKS[seat]![0], DESKS[seat]![1] - 12]
+  return [238 + (seat % 3) * 22, 112 + Math.floor(seat / 3) * 44]
+}
+
+/** One Yoda's own picture: herself, and the furniture in front of her seat. */
+function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string): string {
+  const [x, y] = seatPoint(zone, seat)
+  let front = ''
+  if (zone === 'desk') {
+    const [dx, dy] = DESKS[seat]!
+    front = `${desk(dx, dy)}<g class="screen" fill="#ffffff" opacity=".7"><rect x="${dx - 5}" y="${dy - 9}" width="6" height="1.2"/><rect x="${dx - 5}" y="${dy - 6.5}" width="9" height="1.2"/></g>`
+  } else if (zone === 'rest') {
+    const row = Math.floor(seat / 3)
+    const cx = 238 + (seat % 3) * 22
+    front = row === 0
+      ? `<rect x="${cx - 11}" y="124" width="22" height="12" fill="#f28da4"/><path d="M${cx - 11} 124 H${cx + 11} M${cx - 11} 136 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
+      : `<rect x="${cx - 11}" y="168" width="22" height="12" fill="#7fcfb6"/><path d="M${cx - 11} 168 H${cx + 11} M${cx - 11} 180 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
+  }
+  return `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yoda(x, y, state, seedOf(id))}${front}</svg>`
+}
+
+// 俊俊's picture is made once for the life of this pane and never changes, so nothing
+// (no task, no refresh, no weather) can restart or move him. His trip visits every part
+// of the room at random, whoever happens to be there.
+let junCache = ''
+function junSvg(): string {
+  if (junCache !== '') return junCache
+  const trip = planTrip([100, 176], ['waiting1', 'waiting2', 'desk1', 'desk2', 'rest1', 'rest2'], Math.random)
+  junCache = `${OPEN}<style>${CAST_STYLE}${tripStyle(trip)}</style>${jun()}</svg>`
+  return junCache
+}
+
+// The room's light over everyone, made once; its own 24-hour loop does the rest.
+let lightCache = ''
+function lightSvg(now: number): string {
+  if (lightCache !== '') return lightCache
+  lightCache = `${OPEN}<style>${DAY_STYLE}.dim,.lampOn{animation-delay:-${daySeconds(now)}s}</style>
+<defs><radialGradient id="lampGlowL"><stop offset="0" stop-color="#ffd98a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd98a" stop-opacity="0"/></radialGradient></defs>
+<rect class="dim" width="300" height="190" fill="#1b2140" opacity="0"/>
+<circle class="lampOn" cx="284" cy="62" r="26" fill="url(#lampGlowL)" opacity="0"/></svg>`
+  return lightCache
+}
+
+type Layer = { key: string; svg: string; alt: string }
+
+/** The stack of pictures for the room, bottom to top. */
+export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky = 'clear'): Layer[] {
+  const cast = castOf(rows)
+  const waitSeats = seatAll('wait', cast.waiting.map(r => r.id))
+  const deskSeats = seatAll('desk', cast.running.map(r => r.id))
+  const restSeats = seatAll('rest', cast.resting.map(r => r.id))
+  const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }]
+  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id), alt: r.title })
+  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id), alt: r.title })
+  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id), alt: r.title })
+  layers.push({ key: 'jun', svg: junSvg(), alt: '俊俊' })
+  layers.push({ key: 'light', svg: lightSvg(now), alt: '' })
+  return layers
 }
 
 // ---- the panel ----
@@ -482,7 +541,18 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
   let art = null
   if (e.surface === 'desktop' || e.surface === 'mobile') {
     const { Svg } = $.ui.resolve(e)
-    art = <Svg source={sceneFor(rows, now, skyOf((await read($, weatherAtom))?.code))} alt={`Yoda's Studio：${waiting.length} 個等你、${running.length} 個工作中、${idle.length} 個做完了`} />
+    const layers = sceneLayers(rows, now, skyOf((await read($, weatherAtom))?.code))
+    const [room, ...over] = layers
+    art = (
+      <Box position="relative" flexDirection="column">
+        <Svg source={room!.svg} alt={`Yoda's Studio：${waiting.length} 個等你、${running.length} 個工作中、${idle.length} 個做完了`} />
+        {over.map(l => (
+          <Box key={l.key} position="absolute" top={0} left={0} right={0} bottom={0}>
+            <Svg source={l.svg} alt={l.alt || 'light'} />
+          </Box>
+        ))}
+      </Box>
+    )
   }
 
   const toggle = (col: string) => update($, openAtom, list => (list.includes(col) ? list.filter(c => c !== col) : [...list, col]))
