@@ -106,11 +106,13 @@ export function jun(): string {
   const armsDown = `<g class="junDown">${arm(-8, 10, -1, SKIN_J)}${arm(8, 10, 1, SKIN_J)}</g>`
   const waving = `<g class="junWave">${arm(-8, 10, -1, SKIN_J)}<g class="junWaveArm">${arm(10, -12, 1, SKIN_J)}</g></g>`
   const stretching = `<g class="junUp">${arm(-7, -17, -1, SKIN_J)}${arm(7, -17, 1, SKIN_J)}</g>`
-  return `<g class="junPos"><g class="junSit"><g class="junSpin"><g class="junFace"><g class="junStep">
+  const booArms = `<g class="junBoo">${arm(-10, -10, -1, SKIN_J)}${arm(10, -10, 1, SKIN_J)}</g>`
+  const booBubble = `<g class="junBoo"><rect x="9" y="-31" width="9" height="11" rx="2.5" fill="#f2c84b" stroke="${INK}" stroke-width="1"/><path d="M13.5 -28.5 V-24" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/><circle cx="13.5" cy="-22" r="1" fill="${INK}"/></g>`
+  return `<g class="junPos"><g class="junJump"><g class="junCrouch"><g class="junSit"><g class="junSpin"><g class="junFace"><g class="junStep">
 <ellipse cx="0" cy="13" rx="8" ry="2" fill="#2a3d3522"/>${JUN_BODY}${JUN_HEAD}${eyesOpen}${eyesShut}
 <path d="M-1.5 -1.5 Q0 0 1.5 -1.5" stroke="${INK}" stroke-width=".8" fill="none" stroke-linecap="round"/>
-${armsDown}${waving}${stretching}
-</g></g></g></g><path class="junZz" d="M9 -20 h4 l-4 4 h4" stroke="#8a7790" stroke-width="1.1" fill="none"/></g>`
+${armsDown}${waving}${stretching}${booArms}
+</g></g></g></g></g></g>${booBubble}<path class="junZz" d="M9 -20 h4 l-4 4 h4" stroke="#8a7790" stroke-width="1.1" fill="none"/></g>`
 }
 
 export const CAST_STYLE = `
@@ -248,4 +250,78 @@ export function yodaDressed(move: DailyMove, outfit: Outfit, umbrella: boolean):
   }
   const cls = move === 'jump' ? 'hop' : move === 'walk' ? 'walkStep' : move === 'stretch' ? 'stretch' : 'bob'
   return `<g class="${cls}"><ellipse cx="0" cy="13" rx="8" ry="2" fill="#2a3d3522"/>${YODA_BACK}${outfitBody(outfit)}${YODA_HEAD}${outfitHat(outfit)}${eyes}${mouth}${arms}</g>${extra}${umbrella ? UMBRELLA : ''}`
+}
+
+// ---- a Yoda's routine: several moments, each 30-50s, crossfading ----
+
+/** A small fixed-seed random generator: the same task always gets the same routine,
+ *  so her picture's text never changes by itself (a changed text would restart her). */
+export function seededRandom(seed: number): () => number {
+  let a = seed >>> 0 || 1
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const CHAT = [
+  `<g class="dot1" fill="${INK}"><circle cx="14" cy="-27.5" r=".9"/></g><g class="dot2" fill="${INK}"><circle cx="18" cy="-27.5" r=".9"/></g><g class="dot3" fill="${INK}"><circle cx="22" cy="-27.5" r=".9"/></g>`,
+  `<path d="M15 -30 c-1.2 -1.2 -3 0 -1.6 1.6 l1.6 1.6 1.6 -1.6 c1.4 -1.6 -.4 -2.8 -1.6 -1.6 Z" fill="#f28da4"/><path d="M21 -27 l.6 -3 .8 2.4" stroke="${INK}" stroke-width=".8" fill="none"/>`,
+  `<path d="M14 -29 q2 -2 4 0 M19 -29 q2 2 4 0" stroke="${INK}" stroke-width=".8" fill="none"/>`,
+]
+
+function chatBubble(variant: number): string {
+  return `<g class="pop"><rect x="10" y="-33" width="16" height="9" rx="4.5" fill="#ffffff" stroke="${INK}" stroke-width=".8"/><path d="M13 -24 l-2 3 4 -3 Z" fill="#ffffff" stroke="${INK}" stroke-width=".6"/>${CHAT[variant % CHAT.length]}</g>`
+}
+
+/**
+ * One Yoda living her state: a fixed set of moments for that state, strung in a
+ * seeded order, each lasting 30-50 seconds and crossfading into the next.
+ */
+export function yodaLife(x: number, y: number, state: YodaState, id: string): string {
+  const seed = seedOf(id)
+  const rnd = seededRandom(seed)
+  // the moments each state may show; each entry is a pose seed for yoda() plus an extra
+  type Moment = { pose: YodaState; v: number; chat?: boolean }
+  const moments: Moment[] =
+    state === 'working'
+      ? [{ pose: 'working', v: 0 }, { pose: 'working', v: 1 }, { pose: 'working', v: 2 }, { pose: 'working', v: 0, chat: true }, { pose: 'idle', v: 0 }]
+      : state === 'idle'
+        ? [{ pose: 'idle', v: 0 }, { pose: 'idle', v: 1 }, { pose: 'idle', v: 2 }, { pose: 'idle', v: 0, chat: true }]
+        : state === 'completed'
+          ? [{ pose: 'completed', v: 0 }, { pose: 'idle', v: 0, chat: true }, { pose: 'completed', v: 1 }]
+          : state === 'waiting'
+            ? [{ pose: 'waiting', v: 0 }, { pose: 'waiting', v: 1 }]
+            : [{ pose: 'error', v: 0 }, { pose: 'error', v: 1 }]
+  // shuffle by the seed
+  for (let i = moments.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    ;[moments[i], moments[j]] = [moments[j]!, moments[i]!]
+  }
+  const secs = moments.map(() => 30 + Math.round(rnd() * 20))
+  const total = secs.reduce((a, b) => a + b, 0)
+  const fade = 1.4
+  const pc = (t: number) => `${((((t % total) + total) % total) / total * 100).toFixed(3)}%`
+  let css = ''
+  let body = ''
+  let t = 0
+  moments.forEach((m, i) => {
+    const a = t
+    const b = t + secs[i]!
+    const cls = `m${i}`
+    // fade in over [a - fade, a], hold, fade out over [b - fade, b]; the first wraps round the loop end
+    const frames =
+      i === 0
+        ? `0%{opacity:1}${pc(b - fade)}{opacity:1}${pc(b)}{opacity:0}${pc(total - fade)}{opacity:0}100%{opacity:1}`
+        : `0%{opacity:0}${pc(a - fade)}{opacity:0}${pc(a)}{opacity:1}${pc(b - fade)}{opacity:1}${pc(b)}{opacity:0}100%{opacity:0}`
+    css += `.${cls}{animation:${cls} ${total}s linear infinite;animation-delay:-${(seed % total)}s}@keyframes ${cls}{${frames}}`
+    const pose = yoda(x, y, m.pose, m.v + 3 * (seed % 7))
+    const chat = m.chat ? `<g transform="translate(${x} ${y})">${chatBubble(seed + i)}</g>` : ''
+    body += `<g class="${cls}">${pose}${chat}</g>`
+    t = b
+  })
+  return `<style>${css}</style>${body}`
 }

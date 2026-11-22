@@ -55,6 +55,17 @@ const padPrompt = (turns: readonly PadTurn[]) =>
 
 // The person's own edit of the latest draft (by that draft's time), kept until a new draft comes.
 const editAtom = atom({ plugin: 'valley-theme', key: 'padEdit' } as const, { at: 0, text: '' }, { shape: 'pad-edit-1' })
+// What is typed in the result box, held here while typing: saving it on every key
+// redrew the whole pane (and restarted the Studio's animations) at each keystroke.
+let typing: { at: number; text: string } | null = null
+
+async function commitTyping($: EngineInterface) {
+  if (typing) {
+    const t = typing
+    await update($, editAtom, () => t)
+  }
+}
+
 const settingsAtom = atom({ plugin: 'valley-theme', key: 'padSettings' } as const, false)
 
 const latestTidy = (turns: readonly PadTurn[]) => [...turns].reverse().find(t => t.role === 'tidy')
@@ -68,6 +79,7 @@ async function flash($: EngineInterface, text: string) {
 async function currentPrompt($: EngineInterface): Promise<string> {
   const last = latestTidy(await read($, padAtom))
   if (!last) return ''
+  if (typing && typing.at === last.at) return typing.text
   const edit = await read($, editAtom)
   return edit.at === last.at ? edit.text : last.text
 }
@@ -91,6 +103,8 @@ async function padRun($: EngineInterface, turns: PadTurn[]) {
 async function padSend($: EngineInterface, value: string) {
   const text = value.trim()
   if (text === '' || (await read($, padBusyAtom))) return
+  await commitTyping($)
+  typing = null
   const pad = await read($, padAtom)
   const last = latestTidy(pad)
   const edit = await read($, editAtom)
@@ -274,7 +288,9 @@ export async function tidyView($: EngineInterface, e: RenderInput<'Pane'>) {
             rows={10}
             value={prompt}
             submitLabel="使用指令"
-            onInput={value => update($, editAtom, () => ({ at: last.at, text: value }))}
+            onInput={value => {
+              typing = { at: last.at, text: value }
+            }}
             onSubmit={() => use()}
           />
         </Box>

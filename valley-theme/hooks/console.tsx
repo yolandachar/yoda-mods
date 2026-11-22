@@ -4,7 +4,7 @@ import type { EngineInterface, RenderInput } from 'claude-code'
 import type { ConsoleRow, DailyWeather, StepState } from '../types'
 import { planTrip, positionAt, tripStyle } from './jun-route'
 import type { Area, Pt, Trip } from './jun-route'
-import { CAST_STYLE, jun, seedOf, yoda } from './studio-cast'
+import { CAST_STYLE, jun, seedOf, yoda, yodaLife } from './studio-cast'
 
 // The task console: every Claude session on this computer, how far its task
 // list has got, and what is waiting on the person. It reads the desktop app's
@@ -213,8 +213,11 @@ export async function refreshConsole($: EngineInterface) {
   // Only hand over rows that really changed, so the pane isn't redrawn for nothing.
   const next = rows.slice(0, 30)
   const before = await read($, rowsAtom)
-  if (JSON.stringify(before) !== JSON.stringify(next)) await update($, rowsAtom, () => next)
-  await update($, refreshedAtom, () => now)
+  // Redraw the pane only when something it shows really changed: not for a newer
+  // activity time on a running task, and not on every refresh (that made the room flash).
+  const meaning = (list: readonly ConsoleRow[]) =>
+    JSON.stringify(list.map(r => [r.id, r.title, r.status, r.done, r.total, r.current, r.waiting, r.recap, r.edgeAt]))
+  if (meaning(before) !== meaning(next)) await update($, rowsAtom, () => next)
 }
 
 export async function startConsole($: EngineInterface) {
@@ -479,7 +482,7 @@ function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id
       ? `<rect x="${cx - 11}" y="124" width="22" height="12" fill="#f28da4"/><path d="M${cx - 11} 124 H${cx + 11} M${cx - 11} 136 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
       : `<rect x="${cx - 11}" y="168" width="22" height="12" fill="#7fcfb6"/><path d="M${cx - 11} 168 H${cx + 11} M${cx - 11} 180 H${cx + 11}" stroke="${INK}" stroke-width="1.2"/>`
   }
-  return `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yoda(x, y, state, seedOf(id))}${front}</svg>`
+  return `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yodaLife(x, y, state, id)}${front}</svg>`
 }
 
 // 俊俊's picture is made once for the life of this pane and never changes, so nothing
@@ -527,8 +530,6 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const rows = await read($, rowsAtom)
   const opened = await read($, openAtom)
-  // read so the times on the cards move on with each refresh; the picture itself is cached
-  await read($, refreshedAtom)
   const now = await $.clock.now()
   const waiting = rows.filter(r => r.status === 'waiting' || r.status === 'error')
   const running = rows.filter(r => r.status === 'running')
@@ -544,8 +545,10 @@ export async function consoleView($: EngineInterface, e: RenderInput<'Pane'>) {
     const layers = sceneLayers(rows, now, skyOf((await read($, weatherAtom))?.code))
     const [room, ...over] = layers
     art = (
-      <Box position="relative" flexDirection="column">
-        <Svg source={room!.svg} alt={`Yoda's Studio：${waiting.length} 個等你、${running.length} 個工作中、${idle.length} 個做完了`} />
+      <Box key="studio-stack" position="relative" flexDirection="column">
+        <Box key="layer-room">
+          <Svg source={room!.svg} alt={`Yoda's Studio：${waiting.length} 個等你、${running.length} 個工作中、${idle.length} 個做完了`} />
+        </Box>
         {over.map(l => (
           <Box key={l.key} position="absolute" top={0} left={0} right={0} bottom={0}>
             <Svg source={l.svg} alt={l.alt || 'light'} />

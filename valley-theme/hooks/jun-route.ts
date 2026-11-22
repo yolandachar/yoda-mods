@@ -76,13 +76,14 @@ function nearest(p: Pt): string {
   return best
 }
 
-type Act = 'walk' | 'run' | 'wave' | 'watch' | 'spin' | 'sleep' | 'stretch' | 'pause'
+type Act = 'walk' | 'run' | 'tiptoe' | 'boo' | 'wave' | 'watch' | 'spin' | 'sleep' | 'stretch' | 'pause'
 /** One piece of the trip: from t0 to t1 seconds he goes from a to b (or stays) doing `act`. */
 export type Leg = { t0: number; t1: number; a: Pt; b: Pt; act: Act; face: 1 | -1 }
 export type Trip = { legs: Leg[]; total: number }
 
 const WALK = 26 // px per second
 const RUN = 70
+const TIPTOE = 11
 
 /** Plans a trip from `start` that visits some of `areas` and comes back to `start`. */
 export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): Trip {
@@ -104,22 +105,32 @@ export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): 
     t += secs
   }
   const walkTo = (node: string, speed = WALK) => {
-    for (const n of path(nearest(at), node)) move(NODES[n]!, speed, speed === RUN ? 'run' : 'walk')
+    for (const n of path(nearest(at), node)) move(NODES[n]!, speed, speed === RUN ? 'run' : speed === TIPTOE ? 'tiptoe' : 'walk')
   }
 
   // first step onto the walkway
   move(NODES[nearest(at)]!, WALK, 'walk')
-  const visits = 4 + Math.floor(rnd() * 3)
+  // a long day, so the loop is many minutes before it comes round again
+  const visits = 16 + Math.floor(rnd() * 8)
   for (let i = 0; i < visits; i++) {
     const roll = rnd()
-    if (areas.length > 0 && roll < 0.62) {
+    if (areas.length > 0 && roll < 0.16) {
+      // mischief: tiptoe up to a Yoda, then jump out with a "!"
+      const area = areas[Math.floor(rnd() * areas.length)]!
+      walkTo(AREA_NODE[area])
+      const spot = NODES[AREA_NODE[area]]!
+      move([spot[0] + (rnd() < 0.5 ? -10 : 10), spot[1]], TIPTOE, 'tiptoe')
+      stay(1.6, 'boo')
+      stay(1.2, 'pause')
+      walkTo(rnd() < 0.5 ? 'bm' : 'tm', RUN)
+    } else if (areas.length > 0 && roll < 0.62) {
       // pay a Yoda a visit
       const area = areas[Math.floor(rnd() * areas.length)]!
       walkTo(AREA_NODE[area])
       // turn toward the Yoda: desks and the waiting corner are to his left, the sofas to his right
       face = area === 'rest1' || area === 'rest2' ? 1 : area === 'desk1' || area === 'desk2' ? (rnd() < 0.5 ? 1 : -1) : -1
       stay(1, 'pause')
-      stay(2.5 + rnd() * 2, rnd() < 0.5 ? 'wave' : 'watch')
+      stay(4 + rnd() * 6, rnd() < 0.5 ? 'wave' : 'watch')
     } else if (roll < 0.74) {
       stay(2.4, 'spin')
     } else if (roll < 0.86) {
@@ -131,7 +142,7 @@ export function planTrip(start: Pt, areas: readonly Area[], rnd: () => number): 
     } else {
       stay(3, 'stretch')
     }
-    stay(0.6 + rnd() * 1.4, 'pause')
+    stay(1.5 + rnd() * 4, 'pause')
   }
   // home again, so the loop joins up
   walkTo(nearest(start))
@@ -174,7 +185,9 @@ export function tripStyle(trip: Trip): string {
   const wave = spans('wave')
   const sleep = spans('sleep')
   const stretch = spans('stretch')
-  const busyArms = [...wave, ...stretch].sort((x, y) => x[0] - y[0])
+  const boo = spans('boo')
+  const tiptoe = spans('tiptoe')
+  const busyArms = [...wave, ...stretch, ...boo].sort((x, y) => x[0] - y[0])
   const spin = spans('spin')
   const spinFrames = ['0%{transform:rotate(0deg)}']
   for (const [a, b] of spin) spinFrames.push(`${pc(a, total)}{transform:rotate(0deg)}`, `${pc(b, total)}{transform:rotate(360deg)}`, `${pc(b + 0.01, total)}{transform:rotate(0deg)}`)
@@ -192,6 +205,9 @@ export function tripStyle(trip: Trip): string {
 .junOpen{animation:junOpen ${T} steps(1) infinite}
 .junShut{opacity:0;animation:junShut ${T} steps(1) infinite}
 .junZz{opacity:0;animation:junZz ${T} steps(1) infinite}
+.junBoo{opacity:0;animation:junBoo ${T} steps(1) infinite}
+.junJump{animation:junJump ${T} linear infinite}
+.junCrouch{animation:junCrouch ${T} steps(1) infinite}
 @keyframes junPos{${pos.join('')}}
 @keyframes junFace{${faces.join('')}}
 @keyframes junSpin{${spinFrames.join('')}}
@@ -203,5 +219,8 @@ ${windows('junDown', 'opacity', '0', '1', busyArms, total)}
 ${windows('junUp', 'opacity', '1', '0', stretch, total)}
 ${windows('junOpen', 'opacity', '0', '1', sleep, total)}
 ${windows('junShut', 'opacity', '1', '0', sleep, total)}
-${windows('junZz', 'opacity', '1', '0', sleep, total)}`
+${windows('junZz', 'opacity', '1', '0', sleep, total)}
+${windows('junBoo', 'opacity', '1', '0', boo, total)}
+${windows('junCrouch', 'transform', 'translateY(2.5px) scaleY(.94)', 'translateY(0) scaleY(1)', tiptoe, total)}
+@keyframes junJump{0%{transform:translateY(0)}${boo.map(([a, b]) => `${pc(a, total)}{transform:translateY(0)}${pc(a + (b - a) * 0.3, total)}{transform:translateY(-7px)}${pc(a + (b - a) * 0.6, total)}{transform:translateY(0)}`).join('')}100%{transform:translateY(0)}}`
 }
