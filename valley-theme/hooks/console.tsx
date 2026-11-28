@@ -67,7 +67,7 @@ function applyPlan(steps: Step[], input: Record<string, unknown>): Step[] {
   return next
 }
 
-type Tail = { steps: Step[]; ask: string; recap: string; isAsking: boolean; isError: boolean; turnOpen: boolean }
+type Tail = { steps: Step[]; ask: string; recap: string; isAsking: boolean; isError: boolean; turnOpen: boolean; bgOpen: number }
 
 // Walks the transcript tail for the task list, the last wrap-up and an open question.
 function readTail(text: string): Tail {
@@ -79,10 +79,20 @@ function readTail(text: string): Tail {
   // Is a turn still open? The last message decides: an assistant reply that ended its
   // turn (end_turn) closes it; a tool call, a tool result or a new message keeps it open.
   let turnOpen = false
+  // Background work (a background command or agent) keeps the task working after the turn
+  // ends: launched ids, each closed by its <task-notification>.
+  const bg = new Map<string, number>()
   const lines = text.split('\n')
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i] ?? ''
     if (line.length < 20) continue
+    if (line.includes('backgroundTaskId') || line.includes('async_launched')) {
+      const at = Date.parse(/"timestamp":"([^"]+)"/.exec(line)?.[1] ?? '') || Date.now()
+      for (const m of line.matchAll(/"(?:backgroundTaskId|agentId)":"([A-Za-z0-9_-]+)"/g)) bg.set(m[1]!, at)
+    }
+    if (line.includes('task-notification')) {
+      for (const m of line.matchAll(/<task-id>([^<]+)<\/task-id>/g)) bg.delete(m[1]!)
+    }
     const hasPlan = line.includes('update_plan')
     const hasWrap = line.includes('mcp__ccd_turn__wrap_up')
     const hasAsk = line.includes('AskUserQuestion')
@@ -137,7 +147,7 @@ function readTail(text: string): Tail {
       }
     }
   }
-  return { steps, ask, recap, isAsking, isError, turnOpen }
+  return { steps, ask, recap, isAsking, isError, turnOpen, bgOpen: Math.max(0, ...bg.values()) }
 }
 
 // Each session's row as last read, with the modified times it was read at.
@@ -199,7 +209,7 @@ async function readSession($: EngineInterface, home: string, file: string, now: 
   const userAt = typeof d['latestUserFrameAt'] === 'number' ? d['latestUserFrameAt'] : 0
   const edgeAt = typeof d['lastTurnEdgeAt'] === 'number' ? d['lastTurnEdgeAt'] : 0
 
-  let tail: Tail = { steps: [], ask: '', recap: '', isAsking: false, isError: false, turnOpen: false }
+  let tail: Tail = { steps: [], ask: '', recap: '', isAsking: false, isError: false, turnOpen: false, bgOpen: 0 }
   let transcriptAt = 0
   if (cwd && cli) {
     const path = `${home}/.claude/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${cli}.jsonl`
@@ -215,7 +225,9 @@ async function readSession($: EngineInterface, home: string, file: string, now: 
   }
   // Working = the transcript's last message leaves a turn open, and it moved in the last
   // 10 minutes (an open turn that went quiet longer than that was stopped or lost).
-  const isRunning = tail.turnOpen && now - transcriptAt < 10 * 60000 && !tail.isAsking
+  // Background work still out (launched in the last 3 hours, not yet reported back) counts too.
+  const bgRunning = tail.bgOpen > 0 && now - tail.bgOpen < 3 * 3600000
+  const isRunning = ((tail.turnOpen && now - transcriptAt < 10 * 60000) || bgRunning) && !tail.isAsking
   void userAt
   const total = tail.steps.length
   const done = tail.steps.filter(s => s.status === 'completed').length
