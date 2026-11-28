@@ -739,12 +739,13 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
     moving.delete(id)
   }
   const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }, { key: 'hands', svg: handsSvg(now), alt: '' }]
+  // 俊俊 goes under the Yodas: where they meet, she stays in front
+  layers.push({ key: 'jun', svg: junPicture(junAt(now, areasOf(cast)), now), alt: '俊俊' })
   const everyone = [...cast.running, ...cast.resting, ...cast.waiting].map(r => r.id)
   for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now, lookFor(r.id, everyone)), alt: r.title })
   for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now, lookFor(r.id, everyone)), alt: r.title })
   for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now, lookFor(r.id, everyone)), alt: r.title })
   // 俊俊 follows his own state machine; who is in the room only shapes where he may wander next
-  layers.push({ key: 'jun', svg: junPicture(junAt(now, areasOf(cast)), now), alt: '俊俊' })
   layers.push({ key: 'light', svg: lightSvg(now), alt: '' })
   return layers
 }
