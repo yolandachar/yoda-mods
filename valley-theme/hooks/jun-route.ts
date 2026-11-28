@@ -15,8 +15,8 @@ export const NODES: Record<string, Pt> = {
   bl: [98, 176],
   bm: [154, 176],
   br: [211, 176],
-  wl1: [98, 118], // beside the waiting corner
-  wl2: [98, 150],
+  wl1: [102, 118], // beside the waiting corner
+  wl2: [102, 150],
   tl: [98, 84],
   tm: [154, 84],
   tr: [211, 84],
@@ -30,8 +30,8 @@ export const NODES: Record<string, Pt> = {
   rm: [211, 146],
   r2: [211, 164], // at the rope, by the mint sofa
   gate: [211, 90], // the gap in the rope
-  shelf: [240, 90], // in front of the bookshelf
-  lamp: [266, 90], // by the reading lamp
+  shelf: [240, 72], // in front of the bookshelf
+  lamp: [270, 72], // by the reading lamp
 }
 
 const EDGES: ReadonlyArray<readonly [string, string]> = [
