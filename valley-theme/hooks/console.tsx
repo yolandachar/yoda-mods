@@ -5,7 +5,7 @@ import type { ConsoleRow, DailyWeather, StepState } from '../types'
 import { junAt, junNextChange, junPicture } from './jun-life'
 import { planTrip, positionAt, routeBetween, tripStyle } from './jun-route'
 import type { Area, Pt, Trip } from './jun-route'
-import { CAST_STYLE, jun, seedOf, yoda, yodaDressed, yodaLife } from './studio-cast'
+import { CAST_STYLE, jun, lookFor, seedOf, yoda, yodaDressed, yodaLife } from './studio-cast'
 
 // The task console: every Claude session on this computer, how far its task
 // list has got, and what is waiting on the person. It reads the desktop app's
@@ -659,7 +659,7 @@ function frontOf(zone: Zone, seat: number): string {
 }
 
 /** The walking picture: only her, walking; the clock decides how far along she is. */
-function walkingSvg(id: string, m: Move, now: number): string {
+function walkingSvg(id: string, m: Move, now: number, look: number): string {
   const to = m.route[m.route.length - 1]!
   const frames: string[] = []
   let acc = 0
@@ -674,11 +674,11 @@ function walkingSvg(id: string, m: Move, now: number): string {
   const face = to[0] >= m.route[0]![0] ? 1 : -1
   // runs once, from how far she has already come; held at the end until the swap
   const css = `.${k}{animation:${k} ${m.secs.toFixed(2)}s linear 1 both;animation-delay:-${elapsed.toFixed(2)}s}@keyframes ${k}{${frames.join('')}}.walkStep{animation:walkStep .5s ease-in-out infinite}@keyframes walkStep{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}`
-  return `${OPEN}<style>${CAST_STYLE}${css}</style><g class="${k}"><g transform="translate(${to[0]} ${to[1]}) scale(${face} 1)">${yodaDressed('walk', 'casual', false)}</g></g></svg>`
+  return `${OPEN}<style>${CAST_STYLE}${css}</style><g class="${k}"><g transform="translate(${to[0]} ${to[1]}) scale(${face} 1)">${yodaDressed('walk', 'casual', false, look)}</g></g></svg>`
 }
 
 /** One Yoda's own picture: walking while she moves, else settled at her seat. */
-function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string, now: number): string {
+function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string, now: number, look: number): string {
   const target = seatPoint(zone, seat)
   const was = spot.get(id)
   // her place changed: start a walk from wherever she is right now
@@ -691,13 +691,13 @@ function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id
   }
   spot.set(id, target)
   const m = moving.get(id)
-  if (m && now < m.start + m.secs * 1000) return walkingSvg(id, m, now)
+  if (m && now < m.start + m.secs * 1000) return walkingSvg(id, m, now, look)
   moving.delete(id)
   // arrived (or never moved): her settled picture, the same text until her state changes
-  const key = `${zone}|${seat}|${state}`
+  const key = `${zone}|${seat}|${state}|${look}`
   const have = settled.get(id)
   if (have && have.key === key) return have.svg
-  const svg = `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yodaLife(target[0], target[1], state, id)}${frontOf(zone, seat)}</svg>`
+  const svg = `${OPEN}<style>${CAST_STYLE}${SCENE_STYLE}</style>${yodaLife(target[0], target[1], state, id, look)}${frontOf(zone, seat)}</svg>`
   settled.set(id, { key, svg })
   return svg
 }
@@ -739,9 +739,10 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
     moving.delete(id)
   }
   const layers: Layer[] = [{ key: 'room', svg: roomSvg(now, sky), alt: "Yoda's Studio" }, { key: 'hands', svg: handsSvg(now), alt: '' }]
-  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now), alt: r.title })
-  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now), alt: r.title })
-  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now), alt: r.title })
+  const everyone = [...cast.running, ...cast.resting, ...cast.waiting].map(r => r.id)
+  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now, lookFor(r.id, everyone)), alt: r.title })
+  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now, lookFor(r.id, everyone)), alt: r.title })
+  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now, lookFor(r.id, everyone)), alt: r.title })
   // 俊俊 follows his own state machine; who is in the room only shapes where he may wander next
   layers.push({ key: 'jun', svg: junPicture(junAt(now, areasOf(cast)), now), alt: '俊俊' })
   layers.push({ key: 'light', svg: lightSvg(now), alt: '' })

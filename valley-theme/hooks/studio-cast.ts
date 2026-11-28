@@ -49,8 +49,44 @@ const CONFETTI = `<g class="confetti"><rect x="-13" y="-24" width="2" height="2"
 const MUG = `<g><rect x="6" y="2" width="5" height="5.5" rx="1" fill="#fffaf0" stroke="${INK}" stroke-width=".8"/><path d="M11 3.5 q2 0 2 1.6 q0 1.6 -2 1.6" stroke="${INK}" stroke-width=".7" fill="none"/><path class="steam" d="M7.5 0 q-1 -2 0 -4 M9.8 0 q-1 -2 0 -4" stroke="#b9a7a7" stroke-width=".7" fill="none" stroke-linecap="round"/></g>`
 const ZZ = `<path class="zz" d="M9 -20 h4 l-4 4 h4" stroke="#8a7790" stroke-width="1.1" fill="none"/>`
 
+
+// ---- one look per task in Yoda's Studio: each Yoda dresses differently ----
+type Look = { top: string; bottom: string; detail?: string; hat?: string }
+const LOOKS: Look[] = [
+  { top: '#fdf3e0', bottom: '#bcd7ef' }, // cream top, jeans (her usual)
+  { top: '#f6c6d3', bottom: '#5a4a6b', detail: `<g fill="#ffffff"><circle cx="-3" cy="5.5" r=".7"/><circle cx="2" cy="7" r=".7"/><circle cx="4" cy="4.5" r=".7"/></g>` },
+  { top: '#9fdcc8', bottom: '#3b4a6b', detail: `<path d="M-1 3 V9" stroke="#ffffff" stroke-width="1"/>`, hat: `<path d="M-9.6 -10 Q0 -14 9.6 -10" stroke="#f28da4" stroke-width="2.2" fill="none" stroke-linecap="round"/>` },
+  { top: '#f2c84b', bottom: '#8fb7cf', detail: `<path d="M-6 5 H6 M-6.5 7 H6.5" stroke="#ffffff" stroke-width=".8"/>` },
+  { top: '#c0545e', bottom: '#2b2b30', detail: `<path d="M0 3 V9" stroke="${INK}" stroke-width=".7"/><circle cx="-1.6" cy="5" r=".6" fill="#fffaf0"/><circle cx="-1.6" cy="7.5" r=".6" fill="#fffaf0"/>` },
+  { top: '#bcd7ef', bottom: '#fdf3e0', hat: `<path d="M-9 -12 Q-9 -20 0 -20 Q9 -20 9 -12 Z" fill="#f2c84b" stroke="${INK}" stroke-width=".9"/><path d="M8 -12 H13" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>` },
+  { top: '#e9d2b0', bottom: '#8a5a3a', detail: `<path d="M-3 3 L0 6 L3 3" stroke="#c0545e" stroke-width="1.1" fill="none"/>` },
+  { top: '#d9c8ef', bottom: '#5a6b8a', hat: `<path d="M-9.4 -11 Q0 -15 9.4 -11" stroke="#f4a7b9" stroke-width="1.6" fill="none"/><circle cx="7" cy="-12.5" r="2" fill="#f4a7b9" stroke="${INK}" stroke-width=".6"/>` },
+]
+const lookOfId = new Map<string, number>()
+/** The look of the Yoda for task `id`: different from every other task's while there are looks left. */
+export function lookFor(id: string, active: readonly string[]): number {
+  for (const k of [...lookOfId.keys()]) if (!active.includes(k) && k !== id) lookOfId.delete(k)
+  const have = lookOfId.get(id)
+  if (have !== undefined) return have
+  const used = new Set(lookOfId.values())
+  const start = seedOf(id) % LOOKS.length
+  let pick = start
+  for (let i = 0; i < LOOKS.length; i++) if (!used.has((start + i) % LOOKS.length)) { pick = (start + i) % LOOKS.length; break }
+  lookOfId.set(id, pick)
+  return pick
+}
+function lookBody(i: number): string {
+  const l = LOOKS[i % LOOKS.length]!
+  return `<path d="M-6 3 H6 L7 9 H-7 Z" fill="${l.top}" stroke="${INK}" stroke-width=".9"/>${l.detail ?? ''}<path d="M-6 9 H6 V12 H-6 Z" fill="${l.bottom}"/>`
+}
+function lookHat(i: number): string {
+  return LOOKS[i % LOOKS.length]!.hat ?? ''
+}
+
 /** One Yoda at (x, y), acting out its task's state. `seed` varies pose and rhythm. */
-export function yoda(x: number, y: number, state: YodaState, seed: number): string {
+export function yoda(x: number, y: number, state: YodaState, seed: number, look = 0): string {
+  const YB = lookBody(look)
+  const YH = YODA_HEAD + lookHat(look)
   const v = seed % 3
   const delay = `animation-delay:-${(seed % 97) / 10}s`
   let body = ''
@@ -60,29 +96,29 @@ export function yoda(x: number, y: number, state: YodaState, seed: number): stri
     // typing, reading or thinking at the desk; the desk hides the hands
     cls = v === 0 ? 'type' : v === 1 ? 'read' : 'think'
     const eyes = v === 2 ? EYES.up : EYES.open
-    body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${eyes}${v === 2 ? MOUTH.flat : MOUTH.smile}${arm(-4, 11, -1, SKIN_Y, 'tapL')}${arm(4, 11, 1, SKIN_Y, 'tapR')}`
+    body = `${YODA_BACK}${YB}${YH}${eyes}${v === 2 ? MOUTH.flat : MOUTH.smile}${arm(-4, 11, -1, SKIN_Y, 'tapL')}${arm(4, 11, 1, SKIN_Y, 'tapR')}`
     extra = v === 2 ? BUBBLE_THINK : ''
   } else if (state === 'waiting') {
     // stopped, hand up, a bubble
     cls = 'bob'
-    body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.open}${MOUTH.open}${arm(-8, 10, -1, SKIN_Y)}${arm(9, -14, 1, SKIN_Y, 'raise')}`
+    body = `${YODA_BACK}${YB}${YH}${EYES.open}${MOUTH.open}${arm(-8, 10, -1, SKIN_Y)}${arm(9, -14, 1, SKIN_Y, 'raise')}`
     extra = BUBBLE_WAIT
   } else if (state === 'completed') {
     // hopping and clapping
     cls = 'hop'
-    body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.happy}${MOUTH.open}<g class="clap">${arm(-2, 1, -1, SKIN_Y)}${arm(2, 1, 1, SKIN_Y)}</g>`
+    body = `${YODA_BACK}${YB}${YH}${EYES.happy}${MOUTH.open}<g class="clap">${arm(-2, 1, -1, SKIN_Y)}${arm(2, 1, 1, SKIN_Y)}</g>`
     extra = CONFETTI
   } else if (state === 'idle') {
     // coffee, a stretch, or a doze
     cls = v === 1 ? 'stretch' : 'bob'
-    if (v === 0) body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.open}${MOUTH.smile}${arm(-8, 10, -1, SKIN_Y)}${arm(8, 5, 1, SKIN_Y)}${MUG}`
-    else if (v === 1) body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.closed}${MOUTH.open}${arm(-7, -17, -1, SKIN_Y)}${arm(7, -17, 1, SKIN_Y)}`
-    else body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.closed}${MOUTH.smile}${arm(-8, 10, -1, SKIN_Y)}${arm(8, 10, 1, SKIN_Y)}`
+    if (v === 0) body = `${YODA_BACK}${YB}${YH}${EYES.open}${MOUTH.smile}${arm(-8, 10, -1, SKIN_Y)}${arm(8, 5, 1, SKIN_Y)}${MUG}`
+    else if (v === 1) body = `${YODA_BACK}${YB}${YH}${EYES.closed}${MOUTH.open}${arm(-7, -17, -1, SKIN_Y)}${arm(7, -17, 1, SKIN_Y)}`
+    else body = `${YODA_BACK}${YB}${YH}${EYES.closed}${MOUTH.smile}${arm(-8, 10, -1, SKIN_Y)}${arm(8, 10, 1, SKIN_Y)}`
     extra = v === 2 ? ZZ : ''
   } else {
     // scratching her head, puzzled
     cls = 'wobble'
-    body = `${YODA_BACK}${YODA_BODY}${YODA_HEAD}${EYES.puzzled}${MOUTH.wobbly}${arm(-8, 10, -1, SKIN_Y)}${arm(8, -14, 1, SKIN_Y, 'scratch')}`
+    body = `${YODA_BACK}${YB}${YH}${EYES.puzzled}${MOUTH.wobbly}${arm(-8, 10, -1, SKIN_Y)}${arm(8, -14, 1, SKIN_Y, 'scratch')}`
     extra = BUBBLE_ERROR
   }
   return `<g transform="translate(${x} ${y})"><g class="${cls}" style="${delay}">
@@ -215,7 +251,7 @@ export type DailyMove = 'idle' | 'wave' | 'drink' | 'stretch' | 'walk' | 'dream'
 const UMBRELLA = `<g><path d="M-22 -14 Q-10 -32 2 -14 Q-1 -17 -4 -14 Q-7 -17 -10 -14 Q-13 -17 -16 -14 Q-19 -17 -22 -14 Z" fill="#9fdcc8" stroke="${INK}" stroke-width=".9"/><path d="M-10 -14 V8" stroke="${INK}" stroke-width="1"/><path d="M-10 -24 V-26" stroke="${INK}" stroke-width="1"/></g>`
 
 /** Yoda dressed for the day, doing one move. With `umbrella`, her left hand holds it. */
-export function yodaDressed(move: DailyMove, outfit: Outfit, umbrella: boolean): string {
+export function yodaDressed(move: DailyMove, outfit: Outfit, umbrella: boolean, look?: number): string {
   const leftArm = umbrella ? arm(-10, 7, -1, SKIN_Y) : null
   let eyes = EYES.open
   let mouth = MOUTH.smile
@@ -249,7 +285,7 @@ export function yodaDressed(move: DailyMove, outfit: Outfit, umbrella: boolean):
     arms = `${leftArm ?? arm(-7, 11, -1, SKIN_Y)}${arm(7, 11, 1, SKIN_Y)}`
   }
   const cls = move === 'jump' ? 'hop' : move === 'walk' ? 'walkStep' : move === 'stretch' ? 'stretch' : 'bob'
-  return `<g class="${cls}"><ellipse cx="0" cy="13" rx="8" ry="2" fill="#2a3d3522"/>${YODA_BACK}${outfitBody(outfit)}${YODA_HEAD}${outfitHat(outfit)}${eyes}${mouth}${arms}</g>${extra}${umbrella ? UMBRELLA : ''}`
+  return `<g class="${cls}"><ellipse cx="0" cy="13" rx="8" ry="2" fill="#2a3d3522"/>${YODA_BACK}${look === undefined ? outfitBody(outfit) : lookBody(look)}${YODA_HEAD}${look === undefined ? outfitHat(outfit) : lookHat(look)}${eyes}${mouth}${arms}</g>${extra}${umbrella ? UMBRELLA : ''}`
 }
 
 // ---- a Yoda's routine: several moments, each 30-50s, crossfading ----
@@ -281,7 +317,7 @@ function chatBubble(variant: number): string {
  * One Yoda living her state: a fixed set of moments for that state, strung in a
  * seeded order, each lasting 30-50 seconds and crossfading into the next.
  */
-export function yodaLife(x: number, y: number, state: YodaState, id: string): string {
+export function yodaLife(x: number, y: number, state: YodaState, id: string, look = 0): string {
   const seed = seedOf(id)
   const rnd = seededRandom(seed)
   // the moments each state may show; each entry is a pose seed for yoda() plus an extra
@@ -318,7 +354,7 @@ export function yodaLife(x: number, y: number, state: YodaState, id: string): st
         ? `0%{opacity:1}${pc(b - fade)}{opacity:1}${pc(b)}{opacity:0}${pc(total - fade)}{opacity:0}100%{opacity:1}`
         : `0%{opacity:0}${pc(a - fade)}{opacity:0}${pc(a)}{opacity:1}${pc(b - fade)}{opacity:1}${pc(b)}{opacity:0}100%{opacity:0}`
     css += `.${cls}{animation:${cls} ${total}s linear infinite;animation-delay:-${(seed % total)}s}@keyframes ${cls}{${frames}}`
-    const pose = yoda(x, y, m.pose, m.v + 3 * (seed % 7))
+    const pose = yoda(x, y, m.pose, m.v + 3 * (seed % 7), look)
     const chat = m.chat ? `<g transform="translate(${x} ${y})">${chatBubble(seed + i)}</g>` : ''
     body += `<g class="${cls}">${pose}${chat}</g>`
     t = b
