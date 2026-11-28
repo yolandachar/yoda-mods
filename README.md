@@ -23,9 +23,15 @@ My Claude Code desktop mods:
    }
    ```
 
-3. Turn on iCloud Drive (same Apple ID on both Macs). ☕ Yoda's Daily keeps its shared records in `iCloud Drive/Yoda/`.
+3. Use the shared Claude rules (`CLAUDE.md` in this repository) on this Mac too. If `~/.claude/CLAUDE.md` already exists, merge it into the repository's copy first:
 
-4. Open a new Claude conversation.
+   ```bash
+   ln -s yoda-mods/CLAUDE.md ~/.claude/CLAUDE.md
+   ```
+
+4. Turn on iCloud Drive (same Apple ID on both Macs). ☕ Yoda's Daily keeps its shared records in `iCloud Drive/Yoda/`.
+
+5. Open a new Claude conversation.
 
 ## Update
 
@@ -47,7 +53,7 @@ Then open a new conversation, or reopen the current one.
 
 | What | How |
 | --- | --- |
-| Mod code | this repository (git push / git pull) |
+| Mod code and the shared Claude rules (CLAUDE.md) | this repository (git push / git pull) |
 | Daily water, restroom, eye-rest and stand-up records | iCloud Drive: one file per Mac, merged when shown |
 | Daily settings | iCloud Drive: the latest change wins |
 | Reminder timers, weather cache, outfit of the day | each Mac on its own |
