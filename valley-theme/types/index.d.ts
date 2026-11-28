@@ -57,6 +57,8 @@ export type ConsoleRow = {
   lastAt: number
   /** When its last turn ended: since when it waits, or when it finished. */
   edgeAt: number
+  /** About when it took its present status: a Yoda who moved long ago is already in her seat. */
+  since?: number
 }
 
 /** One day of Yoda's Daily. */

@@ -228,7 +228,6 @@ async function readSession($: EngineInterface, home: string, file: string, now: 
   // Background work still out (launched in the last 3 hours, not yet reported back) counts too.
   const bgRunning = tail.bgOpen > 0 && now - tail.bgOpen < 3 * 3600000
   const isRunning = ((tail.turnOpen && now - transcriptAt < 10 * 60000) || bgRunning) && !tail.isAsking
-  void userAt
   const total = tail.steps.length
   const done = tail.steps.filter(s => s.status === 'completed').length
   const current = tail.steps.find(s => s.status === 'in_progress')?.content ?? ''
@@ -255,6 +254,7 @@ async function readSession($: EngineInterface, home: string, file: string, now: 
     recap: tail.recap,
     lastAt,
     edgeAt: edgeAt || lastAt,
+    since: status === 'running' ? userAt || transcriptAt || now : finishedAt,
   }
 }
 
@@ -611,11 +611,11 @@ const spot = new Map<string, Pt>() // where each Yoda is (or is heading)
 const moving = new Map<string, Move>() // walks in progress
 const settled = new Map<string, { key: string; svg: string }>()
 
-function moveOf(from: Pt, to: Pt, now: number): Move | null {
+function moveOf(from: Pt, to: Pt, start: number): Move | null {
   const route = routeBetween(from, to)
   const lens = route.slice(1).map((p, i) => Math.hypot(p[0] - route[i]![0], p[1] - route[i]![1]))
   const dist = lens.reduce((a, b) => a + b, 0)
-  return dist < 1 ? null : { route, lens, start: now, secs: RISE + dist / YODA_WALK }
+  return dist < 1 ? null : { route, lens, start, secs: RISE + dist / YODA_WALK }
 }
 
 /** Where she is `now` along a walk. */
@@ -678,14 +678,17 @@ function walkingSvg(id: string, m: Move, now: number, look: number): string {
 }
 
 /** One Yoda's own picture: walking while she moves, else settled at her seat. */
-function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string, now: number, look: number): string {
+function yodaSvg(zone: Zone, seat: number, state: Parameters<typeof yoda>[2], id: string, now: number, look: number, since = now): string {
   const target = seatPoint(zone, seat)
   const was = spot.get(id)
   // her place changed: start a walk from wherever she is right now
   if (was && (was[0] !== target[0] || was[1] !== target[1])) {
     const cur = moving.get(id)
     const from = cur && now < cur.start + cur.secs * 1000 ? whereOn(cur, now) : was
-    const m = moveOf(from, target, now)
+    // timed from when the change really happened: seen late (this window was in the
+    // background), she is already part way there, or already seated
+    const begin = cur && now < cur.start + cur.secs * 1000 ? now : Math.min(now, Math.max(since, now - 10 * 60000))
+    const m = moveOf(from, target, begin)
     if (m) moving.set(id, m)
     else moving.delete(id)
   }
@@ -742,9 +745,9 @@ export function sceneLayers(rows: readonly ConsoleRow[], now: number, sky: Sky =
   // 俊俊 goes under the Yodas: where they meet, she stays in front
   layers.push({ key: 'jun', svg: junPicture(junAt(now, areasOf(cast)), now), alt: '俊俊' })
   const everyone = [...cast.running, ...cast.resting, ...cast.waiting].map(r => r.id)
-  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now, lookFor(r.id, everyone)), alt: r.title })
-  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now, lookFor(r.id, everyone)), alt: r.title })
-  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now, lookFor(r.id, everyone)), alt: r.title })
+  for (const r of cast.running) layers.push({ key: 'y-' + r.id, svg: yodaSvg('desk', deskSeats.get(r.id)!, 'working', r.id, now, lookFor(r.id, everyone), r.since), alt: r.title })
+  for (const r of cast.resting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('rest', restSeats.get(r.id)!, r.status === 'done' ? 'completed' : 'idle', r.id, now, lookFor(r.id, everyone), r.since), alt: r.title })
+  for (const r of cast.waiting) layers.push({ key: 'y-' + r.id, svg: yodaSvg('wait', waitSeats.get(r.id)!, r.status === 'error' ? 'error' : 'waiting', r.id, now, lookFor(r.id, everyone), r.since), alt: r.title })
   // 俊俊 follows his own state machine; who is in the room only shapes where he may wander next
   layers.push({ key: 'light', svg: lightSvg(now), alt: '' })
   return layers
